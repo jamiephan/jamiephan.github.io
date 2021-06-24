@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Jamie Phan's GitHub Page</title>
+	<meta name="title" content="Jamie Phan's GitHub Page">
+	<meta name="description" content="Github Page for Jamie Phan's description and projects.">
+
+	<meta property="og:type" content="website">
+	<meta property="og:url" content="https://jamiephan.github.io/">
+	<meta property="og:title" content="Jamie Phan's GitHub Page">
+	<meta property="og:description" content="Github Page for Jamie Phan's description and projects.">
+	<meta property="og:image" content="https://i.imgur.com/vfzvOe6.jpeg">
+
+	<meta property="twitter:card" content="summary_large_image">
+	<meta property="twitter:url" content="https://jamiephan.github.io/">
+	<meta property="twitter:title" content="Jamie Phan's GitHub Page">
+	<meta property="twitter:description" content="Github Page for Jamie Phan's description and projects.">
+	<meta property="twitter:image" content="https://i.imgur.com/vfzvOe6.jpeg">
+	<meta name="google-site-verification" content="NSEb7PFIIVZbqE14xozY5CP9j1GmPqn3PmRrB-rvATo" />
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=Inconsolata&display=swap" rel="stylesheet">
+	<style>
+		body {
+			background: black;
+			color: white;
+			font-family: 'Inconsolata', monospace;
+			padding: 10px;
+		}
+
+		a, a:visited, a:hover, a:active {
+			color: #00bcd4;
+			text-decoration: none;
+		}
+		a:hover {
+			text-decoration: underline;
+		}
+
+		.section {
+			margin: 10px 0px;
+		}
+
+		.section .input:before {
+			content: "$ ";
+		}
+
+		.grep-highlight {
+			color: red;
+		}
+		div {
+			min-height: 17px;
+		}
+	</style>
+</head>
+<body>
+	Welcome To Jamie Phan's Github Page
+	<div class="section">
+		<div class="input">date</div>
+		<div class="output" id="date"></div>
+	</div>
+	<div class="section">
+		<div class="input">whoami</div>
+		<div class="output">jamiephan</div>
+	</div>
+	<div class="section">
+		<div class="input">cat userinfo | grep github</div>
+		<div class="output"><span class="grep-highlight">github</span>=<a href="https://github.com/jamiephan" target="_blank">https://github.com/jamiephan</a></div>
+	</div>
+	<div class="section">
+		<div class="input">cat userinfo | grep website</div>
+		<div class="output"><span class="grep-highlight">website</span>=<a href="https://github.com/jamiephan" target="_blank">https://www.jamiephan.net</a></div>
+	</div>
+	<div class="section">
+		<div class="input">cat userinfo | grep email</div>
+		<div class="output"><span class="grep-highlight">email</span>=<a href="mailto:me@jamiephan.net" target="_blank">me@jamiephan.net</a></div>
+	</div>
+	<div class="section">
+		<div class="input">curl https://api.github.com/users/jamiephan/repos | sort_repos</div>
+		<div class="output">
+			# Heroes of the Storm
+			<br>
+			&nbsp;- <a href="https://github.com/jamiephan/HeroesOfTheStorm_TryMode2.0" target="_blank">HeroesOfTheStorm_TryMode2.0</a>
+			<br>
+			&nbsp;- <a href="https://github.com/jamiephan/HeroesOfTheStorm_S2MA" target="_blank">HeroesOfTheStorm_S2MA</a>
+		</div>
+	</div>
+	<script>
+		const dateEle = document.getElementById("date")
+		dateEle.innerText = new Date().toLocaleString()
+		setInterval(() => dateEle.innerText = new Date().toLocaleString(), 1000)
+	</script>
+</body>
+</html>
