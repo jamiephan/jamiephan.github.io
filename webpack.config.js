@@ -41,6 +41,14 @@ module.exports = {
         test: /\.css$/i,
         use: [MiniCssExtractPlugin.loader, 'css-loader'],
       },
+      {
+        test: /\.(png|jpe?g|gif)$/i,
+        use: [
+          {
+            loader: 'file-loader',
+          },
+        ],
+      },
     ],
   },
   optimization: {
@@ -48,10 +56,13 @@ module.exports = {
     minimizer: [new TerserPlugin()],
   },
   devServer: {
-    port: 5000,
+    port: 80,
     contentBase: path.join(__dirname, 'dist'),
     progress: true,
     liveReload: true,
-    open: true
+    open: true,
+    disableHostCheck: true,
+    host: "0.0.0.0",
+    hot: true,
   }
 }
