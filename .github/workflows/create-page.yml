@@ -8,9 +8,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+
+      - name: Checkout to Main branch
+        run: git checkout main
+
+      - name: Checkout to gh-pages in dist/
+        run: git worktree add -B gh-pages dist origin/gh-pages
+
       - name: Install the App
         run: npm install
+
       - name: Build the App
         run:  npm run build
+
+
+      - name: cd dist
+        run: cd dist
+
+      - name: Check dist/ branch
+        run: |
+          current_branch=$(git symbolic-ref --short -q HEAD)
+          if [ "$current_branch" != "gh-pages" ]; then
+            echo "Expected build folder to be on gh-pages branch."
+            exit 1
+          fi
+
       - name: Push dist/ to gh-pages branch
-        run: git subtree push --prefix dist origin gh-pages
+        run: |
+          git add . && git commit -m "Update gh-pages"
+          git push
