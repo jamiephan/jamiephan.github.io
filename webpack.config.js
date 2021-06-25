@@ -62,9 +62,6 @@ module.exports = {
     contentBase: path.join(__dirname, 'dist'),
     progress: true,
     liveReload: true,
-    open: true,
-    disableHostCheck: true,
-    host: "0.0.0.0",
-    hot: true,
+    open: true
   }
 }
