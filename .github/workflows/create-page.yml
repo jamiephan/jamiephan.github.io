@@ -1,0 +1,16 @@
+name: Create GitHub Page
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install the App
+        run: npm install
+      - name: Build the App
+        run:  npm run build
+      - name: Push dist/ to gh-pages branch
+        run: git subtree push --prefix dist origin gh-pages
