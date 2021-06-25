@@ -7,7 +7,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Clone Repo
+        run: |
+          git clone https://github.com/jamiephan/jamiephan.github.io.git
+          cd jamiephan.github.io
 
       - name: Checkout to Main branch
         run: git checkout main
