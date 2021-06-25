@@ -58,7 +58,7 @@ module.exports = {
     minimizer: [new TerserPlugin(), new CssMinimizerPlugin(),],
   },
   devServer: {
-    port: 80,
+    port: 5000,
     contentBase: path.join(__dirname, 'dist'),
     progress: true,
     liveReload: true,

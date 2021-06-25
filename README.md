@@ -2,7 +2,7 @@
 
 ## Start Server:
 
-```npm start```
+```npm start``` (localhost:80)
 
 ## Build Page:
 
@@ -10,4 +10,4 @@
 
 ## Development:
 
-```npm run watch``` (Web Browser will be started automatically)
+```npm run watch``` (Web Browser will be started automatically and navigate to localhost:5000)
