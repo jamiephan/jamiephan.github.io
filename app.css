@@ -1,0 +1,97 @@
+@import url(https://necolas.github.io/normalize.css/8.0.1/normalize.css);
+@import url(https://fonts.googleapis.com/css2?family=Open+Sans&display=swap);
+:root {
+  --spacing: 300px;
+  --link-color:rgb(104, 252, 252);
+  font-family: 'Open Sans', sans-serif;
+}
+
+
+@media only screen and (max-width: 600px) {
+  section {
+    margin-bottom: var(--spacing);
+  }
+  section {
+    grid-column: 2 / 10 !important;
+  }
+}
+
+html {
+  overflow-x: hidden;
+}
+
+/* Background Canvas */
+canvas {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  position: fixed;
+  width: 100vw;
+  height: 100vh !important;
+  z-index: -1;
+}
+
+
+main {
+  color: white;
+  position: absolute;
+  width: 100vw;
+  margin: 0px auto;
+  padding: 0px;
+
+  /* Grid */
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+
+  transition: opacity 500ms;
+}
+
+main.hide {
+  opacity: 0;
+}
+header {
+  grid-column: 2 / 8;
+  font-size: 2rem;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+section {
+  grid-column: 2 / 8;
+  height: 100vh;
+  font-size: 1.25rem;
+  line-height: 1.5;
+}
+
+
+.right {
+  grid-column: 6 / 12;
+}
+
+a {
+  color: var( --link-color);
+  text-decoration: none;
+}
+
+a:visited {
+  color: var( --link-color);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.easteregg {
+  font-size: 24px;
+  font-style: italic;
+  opacity: 0;
+  transition: opacity 500ms;
+}
+
+.easteregg:hover {
+  opacity: 1;
+}
