@@ -13,7 +13,7 @@ jobs:
         run: git checkout main
 
       - name: Checkout to gh-pages in dist/
-        run: git worktree add -B gh-pages dist origin/gh-pages
+        run: git worktree add -B "gh-pages" dist "origin/gh-pages"
 
       - name: Install the App
         run: npm install
