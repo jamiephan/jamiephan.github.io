@@ -247,15 +247,19 @@ const loop = () => {
 
   if (control.enabled) control.update()
 
-  // Apply rotation to the scene
-  if (!discoveredEasterEgg) sceneAutoRotate(0.015)
+  if (!discoveredEasterEgg) {
+    
+    // Apply rotation to the scene
+    sceneAutoRotate(0.015)
 
-  // Moon Rotation
-  moon.rotateY(degreeToRadian(-.065))
-  moon.rotateX(degreeToRadian(-.065))
+    // Moon Rotation
+    moon.rotateY(degreeToRadian(-.065))
+    moon.rotateX(degreeToRadian(-.065))
+  
+    // Earth Rotation
+    earth.rotateY(degreeToRadian(-.3))
+  }
 
-  // Earth Rotation
-  earth.rotateY(degreeToRadian(-.3))
 
   // Render the scene
   renderer.render(scene, camera)
