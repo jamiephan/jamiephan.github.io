@@ -22,6 +22,7 @@
   "homepage": "https://github.com/jamiephan/jamiephan.github.io#readme",
   "devDependencies": {
     "css-loader": "^5.2.6",
+    "css-minimizer-webpack-plugin": "^3.0.2",
     "file-loader": "^6.2.0",
     "html-webpack-plugin": "^5.3.2",
     "http-server": "^0.12.3",
@@ -33,7 +34,6 @@
     "webpack-dev-server": "^3.11.2"
   },
   "dependencies": {
-    "css-minimizer-webpack-plugin": "^3.0.2",
     "three": "^0.129.0"
   }
 }
