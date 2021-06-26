@@ -253,7 +253,7 @@ const loop = () => {
     sceneAutoRotate(0.015)
 
     // Moon Rotation
-    moon.rotateY(degreeToRadian(-.065))
+    moon.rotateY(degreeToRadian(.065))
     moon.rotateX(degreeToRadian(-.065))
   
     // Earth Rotation
