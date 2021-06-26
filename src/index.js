@@ -21,7 +21,7 @@ const minDistance = 25
 const maxDistance = 50
 const worldSize = 1000
 let enableMousePan = true
-const mousePanSlowness = 700
+const mousePanSlowness = 500
 const mousePanThreshold = 200
 let discoveredEasterEgg = false
 let savedElement = null
@@ -247,12 +247,12 @@ const loop = () => {
 
   if (control.enabled) control.update()
 
-  // Apply random rotation to the scene
-  if (!discoveredEasterEgg) sceneAutoRotate(0.01)
+  // Apply rotation to the scene
+  if (!discoveredEasterEgg) sceneAutoRotate(0.015)
 
   // Moon Rotation
-  moon.rotateY(degreeToRadian(-.05))
-  moon.rotateX(degreeToRadian(-.05))
+  moon.rotateY(degreeToRadian(-.065))
+  moon.rotateX(degreeToRadian(-.065))
 
   // Render the scene
   renderer.render(scene, camera)
