@@ -17,10 +17,6 @@ jobs:
 
     - name: Build the html
       run: npm run build
-    - uses: actions/delete-package-versions@v1
-      with: 
-        num-old-versions-to-delete: 10
-        token: ${{ secrets.GITHUB_TOKEN }}
 
     - uses: peaceiris/actions-gh-pages@v3
       with:
