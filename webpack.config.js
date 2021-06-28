@@ -18,6 +18,7 @@ module.exports = {
     new HtmlWebpackPlugin({
       template: 'src/index.html',
       hash: true,
+      favicon: "./src/assets/favicon.ico",
       minify: {
         html5: true,
         collapseWhitespace: true,
