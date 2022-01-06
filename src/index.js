@@ -257,7 +257,7 @@ const loop = () => {
     moon.rotateX(degreeToRadian(-.065))
   
     // Earth Rotation
-    earth.rotateY(degreeToRadian(-.3))
+    earth.rotateY(degreeToRadian(.3))
   }
 
 
