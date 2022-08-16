@@ -145,7 +145,7 @@ document.addEventListener("resize", () => {
 let previousX = 0
 let previousY = 0
 
-document.addEventListener("mousemove", e => {
+window.addEventListener("mousemove", e => {
 
   if (!enableMousePan) return
 
@@ -248,16 +248,16 @@ const loop = () => {
   if (control.enabled) control.update()
 
   if (!discoveredEasterEgg) {
-    
+
     // Apply rotation to the scene
     sceneAutoRotate(0.015)
 
     // Moon Rotation
     moon.rotateY(degreeToRadian(.065))
     moon.rotateX(degreeToRadian(-.065))
-  
+
     // Earth Rotation
-    earth.rotateY(degreeToRadian(.3))
+    earth.rotateY(degreeToRadian(.2))
   }
 
 
