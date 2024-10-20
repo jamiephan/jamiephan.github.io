@@ -10,32 +10,33 @@ function Render() {
   const pointLightRef = useRef(null);
   const orbitControlsRef = useRef(null);
 
-  const moonEarthGroupRef = useRef(null);
+  const groupRef = useRef(null);
 
   const config = useControls({
     // Light Config
     "light.ambient.enabled": true,
-    "light.ambient.intensity": 0.35,
+    "light.ambient.intensity": 0.6,
 
     "light.spot.enabled": true,
-    "light.spot.position": [3, 2, 6],
-    "light.spot.angle": 0.15,
+    "light.spot.position": [1, 0, 6],
+    "light.spot.angle": 0.3,
     "light.spot.penumbra": 0.6,
-    "light.spot.intensity": 1,
+    "light.spot.intensity": 2.5,
 
     "light.point.enabled": true,
     "light.point.position": [3.5, 1, 5],
     "light.point.intensity": 0.73,
 
     // Stars Config
-    "object.star.enabled": true,
-    "object.star.count": 1500,
-    "object.star.radius": 100,
-    "object.star.depth": 50,
-    "object.star.fade": true,
+    "star.enabled": true,
+    "star.count": 1500,
+    "star.radius": 100,
+    "star.depth": 50,
+    "star.fade": true,
 
-    // Rotational Config
-    "rotate.moonSpeed": 0.005,
+    // Group Config
+    "group.rotate.speed.x": -0.0005,
+    "group.rotate.speed.y": 0.0005,
 
     // Debug Config
     "debug.enabled": true,
@@ -53,7 +54,8 @@ function Render() {
   });
 
   useFrame(() => {
-    moonEarthGroupRef.current.rotation.y += config["rotate.moonSpeed"];
+    groupRef.current.rotation.x += config["group.rotate.speed.x"];
+    groupRef.current.rotation.y += config["group.rotate.speed.y"];
   });
 
   return (
@@ -81,17 +83,17 @@ function Render() {
           castShadow
         />
       )}
-      {/* Stars */}
-      {config["object.star.enabled"] && (
-        <Stars
-          radius={config["object.star.radius"]}
-          depth={config["object.star.depth"]}
-          count={config["object.star.count"]}
-          fade={config["object.star.fade"]}
-        />
-      )}
       {/* Earth & Moon */}
-      <group ref={moonEarthGroupRef}>
+      <group ref={groupRef}>
+        {/* Stars */}
+        {config["star.enabled"] && (
+          <Stars
+            radius={config["star.radius"]}
+            depth={config["star.depth"]}
+            count={config["star.count"]}
+            fade={config["star.fade"]}
+          />
+        )}
         <Earth />
         <Moon />
       </group>
