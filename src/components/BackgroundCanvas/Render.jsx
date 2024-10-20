@@ -1,31 +1,23 @@
 import { OrbitControls, Stars } from "@react-three/drei";
 // import { BoxHelper } from "three";
-import { Leva, useControls } from "leva";
+import { useControls } from "leva";
 
 function Render() {
-  const config = useControls(
-    {
-      // Star Config
-      "star.count": 1500,
-      "star.radius": 100,
-      "star.depth": 50,
-      "star.fade": true,
+  const config = useControls({
+    // Star Config
+    "star.count": 1500,
+    "star.radius": 100,
+    "star.depth": 50,
+    "star.fade": true,
 
-      // Debug Config
-      "debug.enabled": true,
-      "debug.orbitControls": true,
-      "debug.axesHelper": true,
-      "debug.polarGridHelper": false,
-      "debug.gridHelper": false,
-      "debug.arrowHelper": true,
-    },
-    {
-      hidden: true,
-    },
-    {
-      hidden: true,
-    }
-  );
+    // Debug Config
+    "debug.enabled": true,
+    "debug.orbitControls": true,
+    "debug.axesHelper": true,
+    "debug.polarGridHelper": false,
+    "debug.gridHelper": false,
+    "debug.arrowHelper": true,
+  });
 
   return (
     <>
