@@ -29,8 +29,8 @@ function Render() {
 
     // Stars Config
     "star.enabled": true,
-    "star.count": 1500,
-    "star.radius": 100,
+    "star.count": 2500,
+    "star.radius": 40,
     "star.depth": 50,
     "star.fade": true,
 
@@ -41,11 +41,8 @@ function Render() {
     // Debug Config
     "debug.enabled": true,
     "debug.orbitControls": true,
-    "debug.orbitControlsReset": button(
-      () => orbitControlsRef?.current?.reset(),
-      {
-        disabled: !!orbitControlsRef?.current,
-      }
+    "debug.orbitControlsReset": button(() =>
+      orbitControlsRef?.current?.reset()
     ),
     "debug.axesHelper": true,
     "debug.polarGridHelper": false,
