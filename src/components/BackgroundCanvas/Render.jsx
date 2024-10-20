@@ -20,12 +20,12 @@ function Render() {
     "light.spot.enabled": true,
     "light.spot.position": [1, 0, 6],
     "light.spot.angle": 0.3,
-    "light.spot.penumbra": 0.6,
+    "light.spot.penumbra": 1,
     "light.spot.intensity": 2.5,
 
     "light.point.enabled": true,
     "light.point.position": [3.5, 1, 5],
-    "light.point.intensity": 0.73,
+    "light.point.intensity": 0.9,
 
     // Stars Config
     "star.enabled": true,
@@ -35,8 +35,8 @@ function Render() {
     "star.fade": true,
 
     // Group Config
-    "group.rotate.speed.x": -0.0005,
-    "group.rotate.speed.y": 0.0005,
+    "group.rotate.speed.x": -0.0003,
+    "group.rotate.speed.y": 0.0003,
 
     // Debug Config
     "debug.enabled": true,

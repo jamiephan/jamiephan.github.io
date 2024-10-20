@@ -1,15 +1,12 @@
-import { Sphere } from "@react-three/drei";
-import { useLoader } from "@react-three/fiber";
+import { Sphere, useTexture } from "@react-three/drei";
 import { useControls } from "leva";
-import { TextureLoader } from "three";
 
 export default function Moon() {
   // Render the Moon
 
-  const [texture] = useLoader(TextureLoader, [
-    "/assets/textures/moon.jpg",
-    // "/assets/textures/earth-normal-map.jpg",
-  ]);
+  const textureProps = useTexture({
+    map: "/assets/textures/moon.jpg",
+  });
 
   const moonConfig = useControls({
     "moon.enabled": true,
@@ -27,8 +24,8 @@ export default function Moon() {
         castShadow
       >
         <meshStandardMaterial
+          {...textureProps}
           // color="White"
-          map={texture}
         />
       </Sphere>
     </>

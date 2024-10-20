@@ -1,16 +1,16 @@
 import { useRef } from "react";
-import { Sphere } from "@react-three/drei";
-import { useFrame, useLoader } from "@react-three/fiber";
+import { Sphere, useTexture } from "@react-three/drei";
+import { useFrame } from "@react-three/fiber";
 import { useControls } from "leva";
-import { TextureLoader } from "three";
 
 export default function Earth() {
   const earthRef = useRef(null);
   // Render the Earth
-  const [texture, normalMap] = useLoader(TextureLoader, [
-    "/assets/textures/earth.jpg",
-    "/assets/textures/earth-normal-map.jpg",
-  ]);
+
+  const textureProps = useTexture({
+    normalMap: "/assets/textures/earth-normal-map.jpg",
+    map: "/assets/textures/earth.jpg",
+  });
 
   const earthConfig = useControls({
     "earth.enabled": true,
@@ -37,9 +37,8 @@ export default function Earth() {
         castShadow
       >
         <meshStandardMaterial
+          {...textureProps}
           // color="blue"
-          normalMap={normalMap}
-          map={texture}
         />
       </Sphere>
     </>
