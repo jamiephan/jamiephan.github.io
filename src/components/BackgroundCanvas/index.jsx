@@ -6,8 +6,8 @@ import { Leva } from "leva";
 function BackgroundCanvas() {
   return (
     <>
-      <Leva hideCopyButton hideTitleBar oneLineLabels />
-      <Canvas>
+      <Leva collapsed hideCopyButton hideTitleBar oneLineLabels />
+      <Canvas shadows>
         <Render />
       </Canvas>
     </>
