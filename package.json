@@ -1,7 +1,7 @@
 {
   "name": "jamiephan.github.io",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,9 +9,24 @@
     "lint": "eslint .",
     "preview": "vite preview"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jamiephan/jamiephan.github.io.git"
+  },
+  "keywords": [],
+  "author": "Jamie Phan",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jamiephan/jamiephan.github.io/issues"
+  },
+  "homepage": "https://github.com/jamiephan/jamiephan.github.io#readme",
   "dependencies": {
+    "@react-three/drei": "^9.114.6",
+    "@react-three/fiber": "^8.17.10",
+    "leva": "^0.9.35",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "three": "^0.169.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.11.1",
