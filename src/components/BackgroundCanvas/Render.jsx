@@ -41,15 +41,15 @@ function Render() {
     "group.rotate.speed.y": 0.0003,
 
     // Debug Config
-    "debug.enabled": true,
-    "debug.orbitControls": true,
+    "debug.orbitControls": false,
     "debug.orbitControlsReset": button(() =>
       orbitControlsRef?.current?.reset()
     ),
-    "debug.axesHelper": true,
+    "debug.axesHelper": false,
     "debug.polarGridHelper": false,
     "debug.gridHelper": false,
-    "debug.arrowHelper": true,
+    "debug.arrowHelper": false,
+    "debug.pointLightHelper": false,
   });
 
   useFrame(() => {
@@ -108,20 +108,16 @@ function Render() {
       </group>
 
       {/* Debug */}
-      {config["debug.enabled"] && (
-        <>
-          {pointLightRef.current && (
-            <pointLightHelper args={[pointLightRef.current, 5]} />
-          )}
-          {config["debug.orbitControls"] && (
-            <OrbitControls ref={orbitControlsRef} />
-          )}
-          {config["debug.axesHelper"] && <axesHelper />}
-          {config["debug.polarGridHelper"] && <polarGridHelper />}
-          {config["debug.gridHelper"] && <gridHelper />}
-          {config["debug.arrowHelper"] && <arrowHelper setColor={"0x0000ff"} />}
-        </>
+      {config["debug.pointLightHelper"] && pointLightRef.current && (
+        <pointLightHelper args={[pointLightRef.current, 5]} />
       )}
+      {config["debug.orbitControls"] && (
+        <OrbitControls ref={orbitControlsRef} />
+      )}
+      {config["debug.axesHelper"] && <axesHelper />}
+      {config["debug.polarGridHelper"] && <polarGridHelper />}
+      {config["debug.gridHelper"] && <gridHelper />}
+      {config["debug.arrowHelper"] && <arrowHelper setColor={"0x0000ff"} />}
     </>
   );
 }
