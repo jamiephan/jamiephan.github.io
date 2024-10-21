@@ -14,8 +14,9 @@ export default function Earth() {
 
   const earthConfig = useControls({
     "earth.enabled": true,
-    "earth.position": [0, 0, 0],
     "earth.scale": [1.5, 1.5, 1.5],
+    "earth.position": [0, 0, 0],
+    "earth.rotation": [0, 0, 0],
     "earth.rotate.speed.x": 0,
     "earth.rotate.speed.y": -0.001,
   });
@@ -32,7 +33,7 @@ export default function Earth() {
         args={[1, 64, 64]}
         position={earthConfig["earth.position"]}
         scale={earthConfig["earth.scale"]}
-        rotation={[0, 0, 0]}
+        rotation={earthConfig["earth.rotation"]}
         receiveShadow
         castShadow
         visible={earthConfig["earth.enabled"]}
