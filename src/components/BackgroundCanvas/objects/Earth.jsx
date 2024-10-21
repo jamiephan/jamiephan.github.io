@@ -35,6 +35,7 @@ export default function Earth() {
         rotation={[0, 0, 0]}
         receiveShadow
         castShadow
+        visible={earthConfig["earth.enabled"]}
       >
         <meshStandardMaterial
           {...textureProps}

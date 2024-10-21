@@ -1,16 +1,17 @@
 import { useRef } from "react";
 import { OrbitControls, PerspectiveCamera, Stars } from "@react-three/drei";
-// import { BoxHelper } from "three";
+import { useFrame } from "@react-three/fiber";
 import { button, useControls } from "leva";
 import Earth from "./objects/Earth";
 import Moon from "./objects/Moon";
-import { useFrame } from "@react-three/fiber";
+import Skybox from "./objects/Skybox";
 
 function Render() {
   const pointLightRef = useRef(null);
   const orbitControlsRef = useRef(null);
 
   const groupRef = useRef(null);
+  const skyboxRef = useRef(null);
 
   const config = useControls({
     // Light Config
@@ -35,6 +36,7 @@ function Render() {
     "star.fade": true,
 
     // Group Config
+    "group.rotate.speed.bgMultiplier": 0.5,
     "group.rotate.speed.x": -0.0003,
     "group.rotate.speed.y": 0.0003,
 
@@ -53,6 +55,13 @@ function Render() {
   useFrame(() => {
     groupRef.current.rotation.x += config["group.rotate.speed.x"];
     groupRef.current.rotation.y += config["group.rotate.speed.y"];
+
+    skyboxRef.current.rotation.x +=
+      config["group.rotate.speed.x"] *
+      config["group.rotate.speed.bgMultiplier"];
+    skyboxRef.current.rotation.y +=
+      config["group.rotate.speed.y"] *
+      config["group.rotate.speed.bgMultiplier"];
   });
 
   return (
@@ -80,9 +89,9 @@ function Render() {
           castShadow
         />
       )}
-      {/* Earth & Moon */}
+
+      {/* Objects */}
       <group ref={groupRef}>
-        {/* Stars */}
         {config["star.enabled"] && (
           <Stars
             radius={config["star.radius"]}
@@ -93,6 +102,9 @@ function Render() {
         )}
         <Earth />
         <Moon />
+      </group>
+      <group ref={skyboxRef}>
+        <Skybox />
       </group>
 
       {/* Debug */}

@@ -22,6 +22,7 @@ export default function Moon() {
         scale={moonConfig["moon.scale"]}
         receiveShadow
         castShadow
+        visible={moonConfig["moon.enabled"]}
       >
         <meshStandardMaterial
           {...textureProps}
