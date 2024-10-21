@@ -2,14 +2,20 @@ import { useRef } from "react";
 import { Sphere, useTexture } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useControls } from "leva";
+import { emissive } from "three/webgpu";
 
 export default function Earth() {
   const earthRef = useRef(null);
   // Render the Earth
 
   const textureProps = useTexture({
-    normalMap: "/assets/textures/earth-normal-map.jpg",
+    // normalMap: "/assets/textures/earth-normal-map.jpg",
     map: "/assets/textures/earth.jpg",
+    displacementMap: "/assets/textures/earth-displacement.jpg",
+    bumpMap: "/assets/textures/earth-displacement.jpg",
+    // specularMap: "/assets/textures/earth-specular.jpg",
+    lightMap: "/assets/textures/earth-light.jpg",
+    emissiveMap: "/assets/textures/earth-light.jpg",
   });
 
   const earthConfig = useControls({
@@ -40,7 +46,14 @@ export default function Earth() {
       >
         <meshStandardMaterial
           {...textureProps}
-          // color="blue"
+          displacementScale={0.09}
+          bumpScale={0.09}
+          emissive
+          emissiveIntensity={7}
+          lightMapIntensity={7}
+          reflectivity={0}
+          shininess={0}
+          color="white"
         />
       </Sphere>
     </>

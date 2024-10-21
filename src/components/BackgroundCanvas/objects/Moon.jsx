@@ -6,6 +6,8 @@ export default function Moon() {
 
   const textureProps = useTexture({
     map: "/assets/textures/moon.jpg",
+    displacementMap: "/assets/textures/moon-displacement.jpg",
+    bumpMap: "/assets/textures/moon-displacement.jpg",
   });
 
   const moonConfig = useControls({
@@ -27,7 +29,11 @@ export default function Moon() {
     >
       <meshStandardMaterial
         {...textureProps}
-        // color="White"
+        displacementScale={0.06}
+        bumpScale={0.04}
+        reflectivity={0}
+        shininess={0}
+        color={"white"}
       />
     </Sphere>
   );
