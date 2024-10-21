@@ -17,13 +17,7 @@ function BackgroundCanvas() {
 
   return (
     <>
-      <Leva
-        collapsed
-        hideCopyButton
-        hideTitleBar
-        oneLineLabels
-        hidden={!enableLevaMenu}
-      />
+      <Leva hideTitleBar oneLineLabels hidden={!enableLevaMenu} />
       <Canvas shadows>
         <Render />
       </Canvas>
