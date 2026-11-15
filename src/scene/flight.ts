@@ -1,7 +1,7 @@
-import { MathUtils, Quaternion, Vector3, type PerspectiveCamera } from "three";
+import { Euler, MathUtils, Quaternion, Vector3, type PerspectiveCamera } from "three";
 
 /**
- * A very simple free-flight camera: point the nose with the mouse (or by tilting a phone),
+ * A very simple free-flight camera: point the nose with the mouse (or by pointing a phone),
  * thrust with W / S, strafe with A / D, roll with Q / E, and boost with Shift (or hold the
  * on-screen Boost button).
  *
@@ -21,10 +21,6 @@ const TOUCH_SENSITIVITY = 0.005;
 /** Arrow keys turn, and Q / E roll, at these rates (radians per second). */
 const KEY_TURN_RATE = 1.2;
 const ROLL_RATE = 1.6;
-/** Tilt: degrees ignored around the starting pose, degrees for full turn rate, and that rate. */
-const TILT_DEADZONE = 4;
-const TILT_FULL = 30;
-const TILT_TURN_RATE = 1.4;
 /** Stay within this distance of the Earth, so the solar system can't be lost. */
 const MAX_RANGE = 1000;
 /**
@@ -82,6 +78,32 @@ const FLIGHT_KEYS = new Set([
   "ShiftRight",
 ]);
 
+/** The device's back camera looks out of the screen's back, not its top edge: −90° about x. */
+const SCREEN_TO_CAMERA = new Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+const deviceEuler = new Euler();
+const screenTurn = new Quaternion();
+
+/**
+ * Which way a camera "looking through" the phone faces, from DeviceOrientation angles
+ * (degrees) and the screen's rotation. The frame is the device's own (y up, arbitrary
+ * compass); only changes relative to a starting pose are used, so that doesn't matter.
+ */
+export const deviceQuaternion = (
+  alpha: number,
+  beta: number,
+  gamma: number,
+  screenAngle: number,
+  out: Quaternion,
+): Quaternion => {
+  const toRad = MathUtils.degToRad;
+  // The spec's intrinsic Z-X'-Y'' angles, rewritten for a y-up frame.
+  deviceEuler.set(toRad(beta), toRad(alpha), -toRad(gamma), "YXZ");
+  return out
+    .setFromEuler(deviceEuler)
+    .multiply(SCREEN_TO_CAMERA)
+    .multiply(screenTurn.setFromAxisAngle(Z_AXIS, -toRad(screenAngle)));
+};
+
 const X_AXIS = new Vector3(1, 0, 0);
 const Y_AXIS = new Vector3(0, 1, 0);
 const Z_AXIS = new Vector3(0, 0, 1);
@@ -108,9 +130,15 @@ export class FlightController {
   #boost = false;
   #rollLeft = false;
   #rollRight = false;
-  /** Device tilt relative to the pose when flight started (degrees). */
-  #tiltBase: { beta: number; gamma: number } | null = null;
-  #tilt = { pitch: 0, yaw: 0 };
+  /**
+   * Pointing the phone (VR-style "magic window"): the ship faces `reference × device`, where
+   * `device` is the phone's latest orientation. `reference` is fixed when tracking starts so the
+   * view doesn't jump, and shifts when dragging or rolling so those add on top.
+   * Null until the device reports its orientation (never, on most desktops).
+   */
+  #device: Quaternion | null = null;
+  readonly #reference = new Quaternion();
+  readonly #inverse = new Quaternion();
   /** A finger or mouse button dragging to steer (when the pointer isn't locked). */
   #drag: { id: number; x: number; y: number; sensitivity: number } | null = null;
 
@@ -134,8 +162,7 @@ export class FlightController {
     this.#active = true;
     this.#orientation.copy(this.#camera.quaternion);
     this.#velocity.set(0, 0, 0);
-    this.#tiltBase = null;
-    this.#tilt = { pitch: 0, yaw: 0 };
+    this.#device = null;
     this.#bind();
     // Capture the mouse straight away where allowed (this runs from the "Start" click).
     if (matchMedia("(pointer: fine)").matches) this.#lockPointer();
@@ -173,14 +200,14 @@ export class FlightController {
     if (!this.#active) return;
     const keys = this.#keys;
 
-    // Steering: arrow keys and tilt turn at a rate; mouse and drag turn directly (see events).
+    // Steering: arrow keys and roll turn at a rate; mouse, drag and device pointing are direct.
     const keyYaw = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
     const keyPitch = (keys.has("ArrowUp") ? 1 : 0) - (keys.has("ArrowDown") ? 1 : 0);
     const keyRoll =
       (keys.has("KeyE") || this.#rollRight ? 1 : 0) - (keys.has("KeyQ") || this.#rollLeft ? 1 : 0);
     this.#turn(
-      (keyYaw * KEY_TURN_RATE + this.#tilt.yaw * TILT_TURN_RATE) * delta,
-      (keyPitch * KEY_TURN_RATE + this.#tilt.pitch * TILT_TURN_RATE) * delta,
+      keyYaw * KEY_TURN_RATE * delta,
+      keyPitch * KEY_TURN_RATE * delta,
       keyRoll * ROLL_RATE * delta,
     );
 
@@ -223,6 +250,13 @@ export class FlightController {
     if (roll) orientation.multiply(step.setFromAxisAngle(Z_AXIS, -roll));
     // Many small rotations drift from unit length; keep it a pure rotation.
     orientation.normalize();
+    // While following the phone, fold the turn into the reference so it sticks.
+    if (this.#device) this.#rebase();
+  }
+
+  /** Make `reference × device` equal the current orientation. */
+  #rebase(): void {
+    this.#reference.copy(this.#orientation).multiply(this.#inverse.copy(this.#device!).invert());
   }
 
   /**
@@ -335,29 +369,26 @@ export class FlightController {
     canvas.addEventListener("pointerup", endDrag, { signal });
     canvas.addEventListener("pointercancel", endDrag, { signal });
 
-    window.addEventListener("deviceorientation", (event) => this.#onTilt(event), { signal });
+    window.addEventListener("deviceorientation", (event) => this.#onDeviceOrientation(event), {
+      signal,
+    });
   }
 
-  /** Steer by tilting: lean the phone away from how it was held when flight started. */
-  #onTilt({ beta, gamma }: DeviceOrientationEvent): void {
-    if (beta === null || gamma === null) return;
-    this.#tiltBase ??= { beta, gamma };
-    const forwardBack = beta - this.#tiltBase.beta;
-    const leftRight = gamma - this.#tiltBase.gamma;
-
-    // beta / gamma are relative to the device, so swap them round in landscape.
-    const angle = screen.orientation?.angle ?? 0;
-    const [pitchTilt, yawTilt] =
-      angle === 90
-        ? [leftRight, forwardBack]
-        : angle === 270 || angle === -90
-          ? [-leftRight, -forwardBack]
-          : [forwardBack, leftRight];
-
-    const rate = (degrees: number) =>
-      Math.sign(degrees) *
-      MathUtils.clamp((Math.abs(degrees) - TILT_DEADZONE) / (TILT_FULL - TILT_DEADZONE), 0, 1);
-    // Like a yoke: tip the top away to dive, lower the right side to turn right.
-    this.#tilt = { pitch: rate(pitchTilt), yaw: rate(yawTilt) };
+  /** Point the phone to look around: the view turns exactly as the phone does. */
+  #onDeviceOrientation({ alpha, beta, gamma }: DeviceOrientationEvent): void {
+    if (alpha === null || beta === null || gamma === null) return;
+    const screenAngle = screen.orientation?.angle ?? 0;
+    const first = !this.#device;
+    const device = deviceQuaternion(
+      alpha,
+      beta,
+      gamma,
+      screenAngle,
+      this.#device ?? new Quaternion(),
+    );
+    this.#device = device;
+    // Start from wherever the ship was facing, however the phone happens to be held.
+    if (first) this.#rebase();
+    this.#orientation.multiplyQuaternions(this.#reference, device);
   }
 }

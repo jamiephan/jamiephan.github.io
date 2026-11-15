@@ -9,7 +9,7 @@ interface FlightControlsProps {
 
 /**
  * Overlay while flying: a short reminder of the controls, and on touch screens hold-to-use
- * Boost and roll buttons (tilting the device steers). CSS shows whichever set applies.
+ * Boost and roll buttons (pointing the device steers). CSS shows whichever set applies.
  */
 export function FlightControls({ onBoost, onRollLeft, onRollRight, onEnd }: FlightControlsProps) {
   const endRef = useRef<HTMLButtonElement>(null);
@@ -34,7 +34,7 @@ export function FlightControls({ onBoost, onRollLeft, onRollRight, onEnd }: Flig
         <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>Esc</kbd> end
       </p>
       <p className="flight-controls__hint flight-controls__hint--touch">
-        Tilt your device to steer (or drag the sky), hold the arrows to roll
+        Point your phone to look around (or drag the sky), hold the arrows to roll
       </p>
 
       <div className="flight-controls__actions">
