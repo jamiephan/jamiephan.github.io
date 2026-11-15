@@ -18,7 +18,7 @@ interface ExploreModeOptions {
  *
  * - Shift + Q: enter explore mode (or re-open the help dialog)
  * - R: reset the camera
- * - Esc: leave explore mode (or end flight mode, which is started from the help dialog)
+ * - Esc: leave explore mode (or end flight mode, which is started from the toolbar)
  */
 export function useExploreMode({ onResetView }: ExploreModeOptions) {
   const [exploring, setExploring] = useState(false);

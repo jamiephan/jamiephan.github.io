@@ -749,6 +749,17 @@ main {
   -webkit-touch-callout: none;
 }
 
+.explore-zoom__icon {
+  display: block;
+  inline-size: 1em;
+  block-size: 1em;
+  margin-inline: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+
 .explore-dialog {
   width: min(30rem, 100% - 2rem);
   max-height: min(40rem, 100dvh - 2rem);
@@ -878,10 +889,17 @@ main {
   border-radius: 999px;
 }
 
-.flight-controls__end {
+/* Pinned to the top-right corner: "Flight mode" while exploring, "End flight" while flying. */
+.corner-button {
   position: fixed;
   inset-block-start: max(1rem, env(safe-area-inset-top, 0px));
   inset-inline-end: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+/* Top-left instead: "Back to page" while exploring. */
+.corner-button--start {
+  inset-inline-start: max(1rem, env(safe-area-inset-left, 0px));
+  inset-inline-end: auto;
 }
 
 /* Touch: roll buttons in the bottom corners, under the thumbs. */

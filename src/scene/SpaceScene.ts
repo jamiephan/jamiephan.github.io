@@ -208,6 +208,8 @@ export class SpaceScene {
   readonly #onFocusChange: ((id: BodyId) => void) | undefined;
 
   #focusId: BodyId = DEFAULT_BODY;
+  /** The explore view when flight started, so ending the flight can return to it. */
+  #preFlightView: { id: BodyId; direction: Vector3; distance: number } | null = null;
   #transition: FocusTransition | null = null;
   /** A zoom button being held, and the goal distance when it was pressed. */
   #zoom: { direction: number; held: number; from: number } | null = null;
@@ -462,6 +464,7 @@ export class SpaceScene {
       this.#controls.enabled = true;
     } else {
       this.#flight.stop();
+      this.#preFlightView = null;
       this.#controls.enabled = false;
       this.#controls.disconnect();
       this.#controls.reset();
@@ -485,7 +488,7 @@ export class SpaceScene {
 
   /**
    * Start or stop free flight. Starting takes over the camera where it is; stopping hands it
-   * back to the orbit controls and flies back to the Earth.
+   * back to the orbit controls and flies back to the body (and viewpoint) it started from.
    */
   setFlying(flying: boolean): void {
     if (!this.#exploring || flying === this.#flight.active) return;
@@ -496,13 +499,28 @@ export class SpaceScene {
     if (flying) {
       this.#loadDetail();
       this.#controls.enabled = false;
+      this.#preFlightView = {
+        id: this.#focusId,
+        direction: this.#offset
+          .subVectors(this.#camera.position, this.#controls.target)
+          .normalize()
+          .clone(),
+        distance: this.#cameraDistance(),
+      };
       this.#flight.start();
     } else {
       this.#flight.stop();
-      // Orbit round a point just ahead, so the hand-over doesn't jump, then fly home.
+      // Orbit round a point just ahead, so the hand-over doesn't jump, then fly back.
       this.#flight.pointAhead(10, this.#controls.target);
       this.#controls.enabled = true;
-      this.resetView();
+      const view = this.#preFlightView;
+      this.#preFlightView = null;
+      if (view) {
+        this.focus(view.id, view.direction, view.distance);
+        this.#onFocusChange?.(view.id);
+      } else {
+        this.resetView();
+      }
     }
     this.#needsRender = true;
   }
@@ -532,12 +550,16 @@ export class SpaceScene {
     this.#onFocusChange?.(DEFAULT_BODY);
   }
 
-  /** Fly the explore camera to a body and keep following it. */
-  focus(id: BodyId, direction: Vector3 | null = null): void {
+  /**
+   * Fly the explore camera to a body and keep following it, optionally ending up looking from
+   * `direction` at `distance` (by default, the body's usual viewing distance).
+   */
+  focus(id: BodyId, direction: Vector3 | null = null, distance?: number): void {
     const target = this.#targets.get(id);
     if (!target) return;
     const controls = this.#controls;
     const fromDistance = this.#cameraDistance();
+    const toDistance = distance ?? target.viewDistance;
     this.#focusId = id;
     this.#zoomGoal = null;
     // Flying to a body centres it again.
@@ -545,14 +567,19 @@ export class SpaceScene {
     this.#transition = {
       from: controls.target.clone(),
       fromDistance,
-      toDistance: target.viewDistance,
+      toDistance,
       fromDirection: this.#camera.position.clone().sub(controls.target).normalize(),
       toDirection: direction,
       progress: this.#reducedMotion ? 1 : 0,
     };
     // Allow both the old and new distance while flying, so the controls don't clamp mid-way.
     controls.minDistance = Math.min(controls.minDistance, target.radius * 1.5);
-    controls.maxDistance = Math.max(controls.maxDistance, fromDistance, target.viewDistance * 3);
+    controls.maxDistance = Math.max(
+      controls.maxDistance,
+      fromDistance,
+      toDistance,
+      target.viewDistance * 3,
+    );
     this.#needsRender = true;
   }
 

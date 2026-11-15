@@ -10,7 +10,6 @@ export interface Project {
 
 interface SectionBase {
   id: string;
-  emoji: string;
   title: string;
 }
 
@@ -34,7 +33,6 @@ export type Section = ProseSection | SkillsSection | ProjectsSection;
 
 export const site = {
   name: "Jamie Phan",
-  emoji: "🚀",
   tagline: "Software Engineer",
   links: {
     blog: "https://blog.jamiephan.net",
@@ -50,7 +48,6 @@ export const sections: Section[] = [
   {
     id: "about",
     kind: "prose",
-    emoji: "👨‍🦱",
     title: "About Me",
     body: (
       <>
@@ -87,7 +84,6 @@ export const sections: Section[] = [
   {
     id: "skills",
     kind: "skills",
-    emoji: "📜",
     title: "Skills",
     skills: [
       {
@@ -150,7 +146,6 @@ export const sections: Section[] = [
   {
     id: "projects",
     kind: "projects",
-    emoji: "📜",
     title: "Projects",
     intro: (
       <p>
@@ -187,7 +182,6 @@ export const sections: Section[] = [
   {
     id: "hots-modding",
     kind: "projects",
-    emoji: "❄️",
     title: "Heroes of the Storm: Modding",
     intro: (
       <>

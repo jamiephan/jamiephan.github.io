@@ -24,9 +24,7 @@ describe("App (static render)", () => {
     for (const href of hrefs) expect(href).toMatch(/^(https:\/\/|mailto:|#)/);
   });
 
-  it("hides decorative emoji from assistive technology", () => {
-    for (const { emoji } of sections) {
-      expect(html).toContain(`<span aria-hidden="true">${emoji}</span>`);
-    }
+  it("contains no emoji, so visitors don't wait on the colour emoji font", () => {
+    expect(html).not.toMatch(/\p{Extended_Pictographic}/u);
   });
 });

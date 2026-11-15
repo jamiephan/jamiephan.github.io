@@ -88,8 +88,7 @@ export function App() {
       <div className="page" inert={exploring}>
         <header className="hero">
           <h1>
-            <span className="hero__name">{site.name}</span>{" "}
-            <span aria-hidden="true">{site.emoji}</span>
+            <span className="hero__name">{site.name}</span>
           </h1>
           <p className="hero__tagline">{site.tagline}</p>
           <a className="hero__scroll" href={`#${firstSection}`} onClick={scrollToContent}>
@@ -115,7 +114,7 @@ export function App() {
         </footer>
       </div>
 
-      <ExploreDialog open={helpOpen} onClose={closeHelp} onStartFlight={beginFlight} />
+      <ExploreDialog open={helpOpen} onClose={closeHelp} />
       {flying && <FlightControls onRollLeft={rollLeft} onRollRight={rollRight} onEnd={endFlight} />}
       {exploring && !helpOpen && !flying && (
         <ExploreToolbar
@@ -124,6 +123,7 @@ export function App() {
           zoom={zoom}
           sunAngle={sunAngle}
           onSunAngle={moveSun}
+          onStartFlight={beginFlight}
           onReset={resetView}
           onHelp={openHelp}
           onExit={exit}

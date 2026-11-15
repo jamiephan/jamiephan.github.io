@@ -2,16 +2,20 @@
  * Open Sans (variable), limited to the subsets the site actually needs.
  *
  * The full @fontsource bundle also declares Hebrew and Symbols faces whose unicode-ranges
- * cover the zero-width joiner in 👨‍🦱 and emoji like ❄️. The browser then downloads ~44 KB of
- * font files that are never drawn, because those emoji render from the colour emoji font.
- * Other scripts fall back to the system font. The Math subset is kept for the ↺ ↻ roll
+ * cover emoji characters (e.g. the zero-width joiner), which made the browser download font
+ * files that were never drawn. Other scripts fall back to the system font. The Math subset is kept for the ↺ ↻ roll
  * buttons, and it only downloads in flight mode.
+ *
+ * The text faces use `font-display: optional`. With `swap`, the font arriving after the first
+ * layout made the browser re-lay out the whole page, a 150-250 ms task on a throttled phone.
+ * The Latin file is preloaded (see scripts/prerender.ts), so it's usually ready in time. If it
+ * isn't, this visit keeps the system font, and the next one uses the cached web font.
  */
 
 @font-face {
   font-family: "Open Sans Variable";
   font-style: normal;
-  font-display: swap;
+  font-display: optional;
   font-weight: 300 800;
   src: url("@fontsource-variable/open-sans/files/open-sans-latin-wght-normal.woff2")
     format("woff2-variations");
@@ -23,7 +27,7 @@
 @font-face {
   font-family: "Open Sans Variable";
   font-style: normal;
-  font-display: swap;
+  font-display: optional;
   font-weight: 300 800;
   src: url("@fontsource-variable/open-sans/files/open-sans-latin-ext-wght-normal.woff2")
     format("woff2-variations");

@@ -3,8 +3,6 @@ import { useEffect, useId, useRef } from "react";
 interface ExploreDialogProps {
   open: boolean;
   onClose: () => void;
-  /** Flight mode is only offered here, as a little extra for those who read the controls. */
-  onStartFlight: () => void;
 }
 
 const controls: [action: string, how: string][] = [
@@ -13,11 +11,12 @@ const controls: [action: string, how: string][] = [
   ["Pan", "Right-click drag or drag with two fingers"],
   ["Fly to a planet", "Click or tap it, or pick from the list"],
   ["Move the Sun", "Drag the Sun position slider"],
+  ["Fly a spaceship", "Flight mode button, top right"],
   ["Reset view", "R / Reset button"],
   ["Return to the page", "Esc"],
 ];
 
-export function ExploreDialog({ open, onClose, onStartFlight }: ExploreDialogProps) {
+export function ExploreDialog({ open, onClose }: ExploreDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -30,9 +29,7 @@ export function ExploreDialog({ open, onClose, onStartFlight }: ExploreDialogPro
 
   return (
     <dialog ref={dialogRef} className="explore-dialog" aria-labelledby={titleId} onClose={onClose}>
-      <h2 id={titleId}>
-        Hehe, you found me! <span aria-hidden="true">👀</span>
-      </h2>
+      <h2 id={titleId}>Hehe, you found me!</h2>
       <p>You can now fully control the universe.</p>
       <dl className="explore-dialog__controls">
         {controls.map(([action, how]) => (
@@ -43,9 +40,6 @@ export function ExploreDialog({ open, onClose, onStartFlight }: ExploreDialogPro
         ))}
       </dl>
       <form method="dialog">
-        <button type="button" className="button" onClick={onStartFlight}>
-          <span aria-hidden="true">🚀</span> Flight mode
-        </button>
         <button type="submit" className="button button--primary" autoFocus>
           Start exploring
         </button>

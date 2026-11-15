@@ -23,7 +23,7 @@ export function FlightControls({ onRollLeft, onRollRight, onEnd }: FlightControl
       <button
         ref={endRef}
         type="button"
-        className="button button--primary flight-controls__end"
+        className="button button--primary corner-button"
         onClick={onEnd}
       >
         End flight

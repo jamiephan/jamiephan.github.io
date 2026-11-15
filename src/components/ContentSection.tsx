@@ -18,9 +18,7 @@ export function ContentSection({ section, align }: ContentSectionProps) {
       tabIndex={-1}
     >
       <div className="panel">
-        <h2 id={titleId}>
-          <span aria-hidden="true">{section.emoji}</span> {section.title}
-        </h2>
+        <h2 id={titleId}>{section.title}</h2>
         <SectionBody section={section} />
       </div>
     </section>

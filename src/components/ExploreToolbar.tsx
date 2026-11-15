@@ -16,6 +16,7 @@ interface ExploreToolbarProps {
   /** Degrees the Sun has been moved round from its default position (−180 to 180). */
   sunAngle: number;
   onSunAngle: (degrees: number) => void;
+  onStartFlight: () => void;
   onReset: () => void;
   onHelp: () => void;
   onExit: () => void;
@@ -31,6 +32,7 @@ export function ExploreToolbar({
   zoom,
   sunAngle,
   onSunAngle,
+  onStartFlight,
   onReset,
   onHelp,
   onExit,
@@ -52,6 +54,20 @@ export function ExploreToolbar({
 
   return (
     <div className="explore-controls">
+      {/* Top corners, first in the DOM so they come first for focus too. */}
+      <button
+        ref={exitRef}
+        type="button"
+        className="button button--primary corner-button corner-button--start"
+        onClick={onExit}
+      >
+        Back to page
+      </button>
+      {/* Same spot as "End flight", so the two swap places. */}
+      <button type="button" className="button corner-button" onClick={onStartFlight}>
+        Flight mode
+      </button>
+
       <fieldset ref={pickerRef} className="focus-picker">
         <legend className="visually-hidden">Fly to</legend>
         {BODIES.map(({ id, label }) => (
@@ -69,9 +85,7 @@ export function ExploreToolbar({
       </fieldset>
 
       <label className="sun-control">
-        <span className="sun-control__label">
-          <span aria-hidden="true">☀️</span> Sun position
-        </span>
+        <span className="sun-control__label">Sun position</span>
         <input
           type="range"
           min={-180}
@@ -88,16 +102,13 @@ export function ExploreToolbar({
       </label>
 
       <div className="explore-actions">
-        <ZoomButton zoom={zoom} direction={-1} label="Zoom out" symbol="−" />
-        <ZoomButton zoom={zoom} direction={1} label="Zoom in" symbol="+" />
+        <ZoomButton zoom={zoom} direction={-1} label="Zoom out" />
+        <ZoomButton zoom={zoom} direction={1} label="Zoom in" />
         <button type="button" className="button" onClick={onReset}>
           Reset
         </button>
         <button type="button" className="button" onClick={onHelp}>
           Controls
-        </button>
-        <button ref={exitRef} type="button" className="button button--primary" onClick={onExit}>
-          Back to page
         </button>
       </div>
     </div>
@@ -114,11 +125,10 @@ interface ZoomButtonProps {
   zoom: ZoomControls;
   direction: 1 | -1;
   label: string;
-  symbol: string;
 }
 
 /** Press and hold to keep zooming; a tap, click or keypress zooms one step. */
-function ZoomButton({ zoom, direction, label, symbol }: ZoomButtonProps) {
+function ZoomButton({ zoom, direction, label }: ZoomButtonProps) {
   const start = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
     // Keep receiving events (and so stop zooming) even if the finger slides off the button.
@@ -138,7 +148,10 @@ function ZoomButton({ zoom, direction, label, symbol }: ZoomButtonProps) {
       // Keyboard activation has no pointer events (`detail` is 0): zoom one step instead.
       onClick={(event) => event.detail === 0 && zoom.step(direction)}
     >
-      <span aria-hidden="true">{symbol}</span>
+      {/* Drawn rather than typed: text glyphs sit wherever the font's metrics put them. */}
+      <svg className="explore-zoom__icon" viewBox="0 0 16 16" aria-hidden="true">
+        <path d={direction === 1 ? "M3 8h10M8 3v10" : "M3 8h10"} />
+      </svg>
     </button>
   );
 }
