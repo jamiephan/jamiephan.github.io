@@ -10,12 +10,13 @@ uniform vec3 uSunColor;
 uniform vec4 uOccluder;
 
 void main() {
+  computeSphereUv();
   vec3 L = uSunDir;
   vec3 V = normalize(cameraPosition - vWorldPos);
   vec3 geoN = normalize(vWorldNormal);
 
   // Terrain relief from the normal map (oceans are flat).
-  vec3 tangentNormal = texture2D(uNormal, vUv).xyz * 2.0 - 1.0;
+  vec3 tangentNormal = sphereTexture(uNormal, vec2(0.0)).xyz * 2.0 - 1.0;
   tangentNormal.xy *= uNormalStrength;
   vec3 N = normalize(mat3(modelMatrix) * perturbSphereNormal(normalize(vObjNormal), tangentNormal));
 
@@ -25,9 +26,9 @@ void main() {
   float dayMask = smoothstep(-0.05, 0.12, geoNdL);
 
   // Slightly deepen the satellite mosaic: darker oceans, deserts that don't clip.
-  vec3 albedo = pow(texture2D(uDay, vUv).rgb, vec3(1.15)) * 0.85;
-  float ocean = texture2D(uSpecular, vUv).r;
-  float cloud = texture2D(uClouds, vUv + vec2(uCloudOffset, 0.0)).r;
+  vec3 albedo = pow(sphereTexture(uDay, vec2(0.0)).rgb, vec3(1.15)) * 0.85;
+  float ocean = sphereTexture(uSpecular, vec2(0.0)).r;
+  float cloud = sphereTexture(uClouds, vec2(uCloudOffset, 0.0)).r;
 
   // Clouds cast soft shadows; the Moon can eclipse the Sun.
   float shadow = (1.0 - 0.55 * cloud) * mix(0.15, 1.0, sphereShadow(vWorldPos, L, uOccluder));
@@ -47,7 +48,7 @@ void main() {
 
   // City lights on the night side, hidden under clouds.
   float night = 1.0 - smoothstep(-0.2, 0.08, geoNdL);
-  vec3 lights = texture2D(uNight, vUv).rgb;
+  vec3 lights = sphereTexture(uNight, vec2(0.0)).rgb;
   color += lights * vec3(1.0, 0.82, 0.6) * 1.4 * night * (1.0 - 0.8 * cloud);
 
   // Faint earthshine / ambient so the night side is never pure black.

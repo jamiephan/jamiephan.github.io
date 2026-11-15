@@ -11,7 +11,8 @@ uniform float uLimbDarkening;
 #endif
 
 void main() {
-  vec3 albedo = texture2D(uMap, vUv).rgb;
+  computeSphereUv();
+  vec3 albedo = sphereTexture(uMap, vec2(0.0)).rgb;
   vec3 N = normalize(vWorldNormal);
   vec3 V = normalize(cameraPosition - vWorldPos);
   vec3 L = uSunDir;

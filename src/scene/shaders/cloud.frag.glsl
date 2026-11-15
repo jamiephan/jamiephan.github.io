@@ -4,7 +4,8 @@ uniform vec3 uSunColor;
 uniform vec4 uOccluder;
 
 void main() {
-  float density = texture2D(uClouds, vUv).r;
+  computeSphereUv();
+  float density = sphereTexture(uClouds, vec2(0.0)).r;
   vec3 N = normalize(vWorldNormal);
   float NdL = dot(N, uSunDir);
 

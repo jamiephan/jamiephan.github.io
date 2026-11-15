@@ -434,9 +434,11 @@ export class SpaceScene {
     const anisotropy = Math.min(8, this.#renderer.capabilities.getMaxAnisotropy());
     // `deviceMemory` is Chromium-only (and rounded); elsewhere, trust the texture size limit.
     const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-    this.#hd = new HdTextures(
+    const hdCapable =
       this.#renderer.capabilities.maxTextureSize >= HD_TEXTURE_SIZE &&
-        (memory ?? Infinity) >= HD_MIN_DEVICE_MEMORY_GB,
+      (memory ?? Infinity) >= HD_MIN_DEVICE_MEMORY_GB;
+    this.#hd = new HdTextures(
+      hdCapable,
       this.#renderer,
       () => this.#createImageLoader(),
       (from, to) => this.#swapTexture(from, to),
@@ -449,14 +451,22 @@ export class SpaceScene {
         sharp = false,
         wrap = true,
         body,
-      }: { color?: boolean; sharp?: boolean; wrap?: boolean; body?: BodyId } = {},
+        hdSized = false,
+      }: {
+        color?: boolean;
+        sharp?: boolean;
+        wrap?: boolean;
+        body?: BodyId;
+        /** The full-resolution file is HD-sized (8K): skip it where HD maps are skipped. */
+        hdSized?: boolean;
+      } = {},
     ): Texture => {
       // Start with the small preview if there is one; `#loadDetail` fetches the rest later.
       const preview = previewFor(url);
       const texture = new Texture();
       texture.flipY = false; // the loader already flips the bitmap
       loader.load(preview ?? url, (image) => this.#setImage(texture, image));
-      if (preview) this.#pendingDetail.push({ texture, url });
+      if (preview && (hdCapable || !hdSized)) this.#pendingDetail.push({ texture, url });
       const hd = body && hdFor(url);
       if (body && hd) this.#hd.register(texture, body, hd);
       texture.colorSpace = color ? SRGBColorSpace : NoColorSpace;
@@ -473,7 +483,9 @@ export class SpaceScene {
     this.#sunDirection = lighting.uSunDir.value;
 
     /* ---------- Sky ---------- */
-    const milkyWay = load(milkyWayUrl);
+    // The page shows the 4K preview; explore mode the 8K map. The camera never gets closer to
+    // the sky, so there's no HD level beyond that.
+    const milkyWay = load(milkyWayUrl, { hdSized: true });
     // Magnified everywhere, so mipmaps would only cost memory (and cause a seam at the wrap).
     milkyWay.generateMipmaps = false;
     milkyWay.minFilter = LinearFilter;
@@ -504,10 +516,10 @@ export class SpaceScene {
 
     /* ---------- Earth ---------- */
     const earthTextures = {
-      day: load(earthDayUrl, { sharp: true }),
+      day: load(earthDayUrl, { sharp: true, body: "earth" }),
       night: load(earthNightUrl, { sharp: true, body: "earth" }),
-      normal: load(earthNormalUrl, { color: false, sharp: true }),
-      specular: load(earthSpecularUrl, { color: false }),
+      normal: load(earthNormalUrl, { color: false, sharp: true, body: "earth" }),
+      specular: load(earthSpecularUrl, { color: false, body: "earth" }),
       clouds: load(earthCloudsUrl, { color: false, sharp: true, body: "earth" }),
     };
 
@@ -546,7 +558,7 @@ export class SpaceScene {
     /* ---------- Moon (tidally locked: the same face always points at the Earth) ---------- */
     this.#moon = new Mesh(
       new SphereGeometry(MOON_RADIUS, 64, 32),
-      createRockyMaterial(load(moonUrl, { sharp: true }), lighting, {
+      createRockyMaterial(load(moonUrl, { sharp: true, body: "moon" }), lighting, {
         // The Earth eclipses the Moon, and lights its night side (earthshine).
         occluder: { value: new Vector4(0, 0, 0, EARTH_RADIUS) },
         ambient: new Color(0.015, 0.02, 0.03),

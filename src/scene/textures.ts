@@ -10,7 +10,7 @@ const full = import.meta.glob<string>("../assets/textures/*.{webp,png}", {
   query: "?url",
   import: "default",
 });
-const previews = import.meta.glob<string>("../assets/textures/preview/*.webp", {
+const previews = import.meta.glob<string>("../assets/textures/preview/*.{webp,png}", {
   eager: true,
   query: "?url",
   import: "default",
@@ -33,7 +33,7 @@ export const previewFor = (url: string): string | undefined => previewByUrl.get(
  * Up-to-8K versions in `assets/textures/hd/` (same file name), loaded only for the body being
  * explored or flown close to; see `hdTextures.ts`.
  */
-const hd = import.meta.glob<string>("../assets/textures/hd/*.webp", {
+const hd = import.meta.glob<string>("../assets/textures/hd/*.{webp,png}", {
   eager: true,
   query: "?url",
   import: "default",

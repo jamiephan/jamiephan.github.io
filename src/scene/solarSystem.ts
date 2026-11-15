@@ -267,7 +267,7 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     if (spec.rings) {
       ringUniforms = createRingUniforms(
         // A radial strip: repeating would blend its outer edge into the inner one.
-        load(spec.rings.url, { wrap: false }),
+        load(spec.rings.url, { wrap: false, body: spec.id }),
         spec.rings.inner * radius,
         spec.rings.outer * radius,
       );
