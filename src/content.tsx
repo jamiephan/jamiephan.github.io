@@ -58,21 +58,16 @@ export const sections: Section[] = [
           I’m Jamie Phan (he/him), a software engineer with a degree in Computer Science from the
           University of Leicester. I work across the stack, from TypeScript and React front ends to
           Node.js services, containerised infrastructure and CI/CD pipelines, and I’m comfortable
-          dropping down to native code when a problem calls for it.
+          dropping down to native code when a problem calls for it. I’m equally at home in Linux and
+          Windows environments, and in the networking and identity layers beneath most production
+          systems.
         </p>
         <p>
-          What I enjoy most is automation and developer tooling: spotting repetitive, error-prone
-          work and turning it into systems that run reliably without anyone having to think about
-          them. That might be a GitHub Actions pipeline that tracks every game update, a serverless
-          API on Cloudflare Workers, or a Node-API binding published to npm so other developers
-          don’t have to write one themselves.
-        </p>
-        <p>
-          I care about the details that make software pleasant to use and easy to maintain: clear
-          interfaces, accessible and fast web pages, sensible defaults, and documentation that
-          answers the next question before it’s asked. I’m equally at home in Linux and Windows
-          environments, and in the networking and identity layers that sit underneath most
-          production systems.
+          What I enjoy most is automation and developer tooling: turning repetitive, error-prone
+          work into systems that run reliably on their own, such as a GitHub Actions pipeline that
+          tracks every game update, a serverless API on Cloudflare Workers, or a Node-API binding
+          published to npm. I care about the details that make software pleasant to use and easy to
+          maintain: clear interfaces, accessible and fast pages, and helpful documentation.
         </p>
         <p>
           Outside of work, I build and maintain open-source tools for the Heroes of the Storm
@@ -295,61 +290,6 @@ export const sections: Section[] = [
         url: gh("HeroesOfTheStorm_S2MA"),
         description:
           "A GitHub Actions pipeline that downloads each game update and extracts the map and mod files used by Try Mode 2.0 and AI Maps.",
-      },
-    ],
-  },
-  {
-    id: "archived",
-    kind: "projects",
-    emoji: "🎮",
-    title: "Archived Projects",
-    projects: [
-      {
-        name: "storm-extract-docker",
-        url: gh("storm-extract-docker"),
-        description: (
-          <>
-            A containerised build of the{" "}
-            <a href="https://github.com/nydus/storm-extract">storm-extract</a> command-line tool.
-            Built from <code>scratch</code>, the image is just <code>1.52 MB</code>.
-          </>
-        ),
-      },
-      {
-        name: "Battle.Net-Installer",
-        url: gh("Battle.Net-Installer"),
-        description: (
-          <>
-            A fork of{" "}
-            <a href="https://github.com/barncastle/Battle.Net-Installer">
-              <code>barncastle/Battle.Net-Installer</code>
-            </a>{" "}
-            adapted for non-interactive environments such as GitHub Actions. It powered the S2MA and
-            Game Data pipelines.
-          </>
-        ),
-      },
-      {
-        name: "Blizzcle",
-        url: gh("blizzcle"),
-        description:
-          "A Node.js library and CLI for downloading Blizzard news articles as JSON or HTML.",
-      },
-      {
-        name: "Snapshot Differ",
-        url: gh("HeroesOfTheStorm_SnapshotDiffer"),
-        description:
-          "A pipeline that extracted game data on each patch, generated diffs against previous versions and posted them via a Reddit bot. Superseded by Game Data.",
-      },
-      {
-        name: "Snapshot Differ Result",
-        url: gh("HeroesOfTheStorm_SnapshotDifferResult"),
-        description: "An archive of the patch diffs produced by Snapshot Differ.",
-      },
-      {
-        name: "New Heroes Notification",
-        url: gh("HeroesOfTheStorm_NewHeroesNotification"),
-        description: "A PHP console application that monitored for and announced new heroes.",
       },
     ],
   },

@@ -3,11 +3,32 @@
   --color-bg: #05060f;
   --color-text: #f3f5ff;
   --color-muted: #c3c9e0;
-  --color-link: #68fcfc;
-  --color-link-hover: #b4fefe;
-  --color-panel: rgb(6 8 22 / 0.62);
-  --color-panel-border: rgb(255 255 255 / 0.1);
+  /* Accents sampled from the scene: ion-tail cyan, nebula violet, dust-tail rose. */
+  --color-cyan: #7ff9ff;
+  --color-violet: #c3b2ff;
+  --color-rose: #ffb8e0;
+  --color-link: var(--color-cyan);
+  --color-link-hover: #d4fdff;
+  /* Dark text for use on the bright accent fills (≥ 8:1 on every stop of the gradient). */
+  --color-on-accent: #050616;
+  --color-panel: rgb(7 9 26 / 0.72);
+  --color-panel-border: rgb(160 190 255 / 0.16);
   --color-focus: #ffd166;
+
+  --gradient-nebula: linear-gradient(
+    100deg,
+    var(--color-cyan),
+    var(--color-violet) 55%,
+    var(--color-rose)
+  );
+  --gradient-edge: linear-gradient(
+    140deg,
+    rgb(127 249 255 / 0.6),
+    rgb(195 178 255 / 0.22) 35%,
+    rgb(255 255 255 / 0.05) 65%,
+    rgb(255 184 224 / 0.4)
+  );
+  --glow-cyan: 0 0 1.25rem rgb(127 249 255 / 0.3);
 
   --font-sans: "Open Sans Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
@@ -20,6 +41,7 @@
   line-height: 1.6;
   color: var(--color-text);
   background-color: var(--color-bg);
+  scrollbar-color: rgb(160 190 255 / 0.35) var(--color-bg);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
@@ -68,6 +90,11 @@ button {
   color: inherit;
 }
 
+::selection {
+  color: #fff;
+  background: rgb(150 120 255 / 0.55);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   html {
     scroll-behavior: smooth;
@@ -88,19 +115,28 @@ button {
 }
 
 /* ---------- Links & focus ---------- */
+/*
+ * Links keep a visible underline (so they never rely on colour alone), drawn with the same
+ * nebula gradient as the headings. It's a background so it can be a gradient and grow on hover.
+ */
 a {
   color: var(--color-link);
-  text-decoration-line: underline;
-  text-decoration-thickness: 1px;
-  text-decoration-color: rgb(104 252 252 / 0.45);
-  text-underline-offset: 0.2em;
+  text-decoration: none;
+  background-image: var(--gradient-nebula);
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
   transition:
     color 150ms,
-    text-decoration-color 150ms;
+    background-size 150ms,
+    text-shadow 150ms;
 
   &:hover {
     color: var(--color-link-hover);
-    text-decoration-color: currentColor;
+    background-size: 100% 2px;
+    text-shadow:
+      0 0 0.6em rgb(127 249 255 / 0.65),
+      0 1px 3px rgb(0 0 0 / 0.8);
   }
 }
 
@@ -116,13 +152,19 @@ kbd {
   font-size: 0.9em;
 }
 
+/* Keycaps lit from below, like a cockpit panel. */
 kbd {
   display: inline-block;
-  padding: 0.05em 0.4em;
-  border: 1px solid rgb(255 255 255 / 0.35);
-  border-bottom-width: 2px;
-  border-radius: 0.3em;
+  padding: 0.05em 0.45em;
+  color: var(--color-text);
+  background: linear-gradient(rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.03));
+  border: 1px solid rgb(160 190 255 / 0.4);
+  border-radius: 0.35em;
+  box-shadow:
+    inset 0 -2px 0 rgb(127 249 255 / 0.4),
+    0 0 0.6em rgb(127 249 255 / 0.15);
   line-height: 1.3;
+  font-style: normal;
 }
 
 /* ---------- 3D background ---------- */
@@ -170,24 +212,99 @@ kbd {
   display: grid;
   align-content: center;
   justify-items: start;
-  gap: 0.5rem;
+  gap: 0.75rem;
   min-height: 100svh;
   padding-inline: var(--gutter);
 
   & h1 {
     font-size: clamp(2.5rem, 1.5rem + 5vw, 5rem);
-    font-weight: 700;
+    font-weight: 800;
+    letter-spacing: -0.02em;
   }
 }
 
+.hero__name {
+  /* Filled with the nebula gradient; the solid colour is the fallback. */
+  color: var(--color-cyan);
+
+  @supports (background-clip: text) or (-webkit-background-clip: text) {
+    color: transparent;
+    background: var(--gradient-nebula);
+    -webkit-background-clip: text;
+    background-clip: text;
+    /* A text-shadow would show through the transparent glyphs; glow around them instead. */
+    text-shadow: none;
+    /*
+     * The pale gradient can sit over the bright Earth on narrow screens, so a tight dark halo
+     * keeps every letter legible; the faint blue glow goes on top of that.
+     */
+    filter: drop-shadow(0 0 1px rgb(0 0 0 / 0.9)) drop-shadow(0 0.05em 0.12em rgb(0 0 0 / 0.85))
+      drop-shadow(0 0 0.5em rgb(80 100 220 / 0.45));
+  }
+}
+
+/* A mission-badge style label under the name. */
 .hero__tagline {
-  font-size: clamp(1.125rem, 1rem + 1vw, 1.5rem);
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  font-family: var(--font-mono);
+  font-size: clamp(0.95rem, 0.85rem + 0.6vw, 1.25rem);
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--color-muted);
+  text-shadow:
+    0 0 2px rgb(0 0 0 / 0.95),
+    0 1px 4px rgb(0 0 0 / 0.9);
+
+  &::before {
+    content: "";
+    inline-size: 2.5em;
+    block-size: 2px;
+    background: var(--gradient-nebula);
+    border-radius: 1px;
+    box-shadow: var(--glow-cyan);
+  }
 }
 
 .hero__scroll {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  min-block-size: 2.75rem;
   margin-block-start: 2rem;
+  padding: 0.4rem 1.1rem;
   font-size: 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  background: rgb(7 9 26 / 0.6);
+  border: 1px solid rgb(127 249 255 / 0.4);
+  border-radius: 999px;
+  box-shadow: inset 0 0 1rem rgb(127 249 255 / 0.08);
+  transition:
+    color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+
+  &:hover {
+    border-color: var(--color-cyan);
+    box-shadow:
+      inset 0 0 1rem rgb(127 249 255 / 0.15),
+      var(--glow-cyan);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    & span {
+      animation: drift-down 2.4s ease-in-out infinite;
+    }
+  }
+}
+
+@keyframes drift-down {
+  50% {
+    translate: 0 0.2em;
+  }
 }
 
 main {
@@ -205,6 +322,11 @@ main {
   min-height: 100svh;
   padding-block: 3rem;
   scroll-margin-block-start: 1rem;
+
+  /* Focused only by script (see "Scroll to explore"); it isn't interactive, so no ring. */
+  &:focus {
+    outline: none;
+  }
 }
 
 @media (width >= 48rem) {
@@ -223,14 +345,39 @@ main {
   }
 }
 
+/*
+ * Content panels: a dark viewport with a faint nebula in one corner and a hairline edge
+ * that catches the light like a spacecraft window. No backdrop blur, so the WebGL scene
+ * behind doesn't pay for an extra full-screen blur every frame.
+ */
 .panel {
+  position: relative;
   width: 100%;
   padding: clamp(1.25rem, 0.75rem + 2vw, 2.25rem);
   font-size: clamp(1rem, 0.95rem + 0.3vw, 1.2rem);
-  background: var(--color-panel);
+  background:
+    radial-gradient(120% 70% at 0% 0%, rgb(110 90 230 / 0.16), transparent 60%),
+    radial-gradient(90% 60% at 100% 100%, rgb(40 160 200 / 0.1), transparent 60%),
+    var(--color-panel);
   border: 1px solid var(--color-panel-border);
   border-radius: var(--radius);
-  box-shadow: 0 1.5rem 3rem -1rem rgb(0 0 0 / 0.6);
+  box-shadow:
+    0 1.5rem 3rem -1rem rgb(0 0 0 / 0.7),
+    0 0 4rem -1.5rem rgb(100 130 255 / 0.4);
+
+  /* Gradient edge: a 1px ring masked out of a gradient-filled layer over the border. */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    padding: 1px;
+    border-radius: inherit;
+    background: var(--gradient-edge);
+    mask:
+      linear-gradient(#000 0 0) content-box exclude,
+      linear-gradient(#000 0 0);
+    pointer-events: none;
+  }
 
   & > * + * {
     margin-block-start: 1em;
@@ -238,38 +385,71 @@ main {
 
   & h2 {
     font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2.1rem);
+    letter-spacing: -0.01em;
+
+    /* A short glowing trail under each section title. */
+    &::after {
+      content: "";
+      display: block;
+      inline-size: 3.5rem;
+      block-size: 3px;
+      margin-block-start: 0.45em;
+      background: var(--gradient-nebula);
+      border-radius: 2px;
+      box-shadow: var(--glow-cyan);
+    }
   }
 }
 
-.skills {
+/*
+ * Skills and projects share one layout: each entry hangs off a glowing node on a gradient
+ * rail, with a subheading (a skill category or a project name) above its details.
+ */
+.entries {
   display: grid;
-  gap: 0.85em;
-
-  & dt {
-    font-weight: 700;
-  }
-
-  & dd {
-    color: var(--color-muted);
-  }
-}
-
-.projects {
-  display: grid;
-  gap: 1.5em;
+  gap: 1.25em;
   padding: 0;
   list-style: none;
 }
 
-.project {
-  & h3 {
-    font-size: 1.15em;
-    margin-block-end: 0.25em;
+.entry {
+  position: relative;
+  padding-inline-start: 1.5em;
+
+  /* The rail, fading out down the entry. */
+  &::before {
+    content: "";
+    position: absolute;
+    inset-block: 1.1em 0;
+    inset-inline-start: calc(0.375em - 1px);
+    inline-size: 2px;
+    background: linear-gradient(rgb(127 249 255 / 0.6), rgb(195 178 255 / 0.25), transparent);
+    border-radius: 1px;
   }
 
-  & p {
-    color: var(--color-muted);
+  /* The node: a small glowing star level with the subheading. */
+  &::after {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0.1em;
+    inset-block-start: 0.45em;
+    inline-size: 0.55em;
+    block-size: 0.55em;
+    background: radial-gradient(circle, #fff 0 20%, var(--color-cyan) 45%, transparent 72%);
+    border-radius: 50%;
+    box-shadow: 0 0 0.6em rgb(127 249 255 / 0.7);
   }
+}
+
+.entry__title {
+  margin-block-end: 0.2em;
+  font-size: 1.1em;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.entry__body {
+  color: var(--color-muted);
 }
 
 .project__source {
@@ -287,19 +467,25 @@ main {
 }
 
 .easter-egg {
-  padding: 0.5rem 0.75rem;
+  min-block-size: 2.75rem;
+  padding: 0.5rem 1rem;
   font-size: 0.95rem;
   font-style: italic;
+  color: var(--color-muted);
   background: none;
-  border: 0;
-  border-radius: 0.5rem;
+  border: 1px dashed rgb(160 190 255 / 0.25);
+  border-radius: 999px;
   cursor: pointer;
-  opacity: 0.45;
-  transition: opacity 300ms;
+  transition:
+    color 300ms,
+    border-color 300ms,
+    box-shadow 300ms;
 
   &:hover,
   &:focus-visible {
-    opacity: 1;
+    color: var(--color-text);
+    border-color: rgb(127 249 255 / 0.6);
+    box-shadow: var(--glow-cyan);
   }
 }
 
@@ -308,24 +494,43 @@ main {
   min-height: 2.75rem;
   padding: 0.5rem 1.1rem;
   font-weight: 600;
-  background: rgb(20 24 50 / 0.85);
-  border: 1px solid rgb(255 255 255 / 0.25);
+  background: linear-gradient(rgb(40 48 100 / 0.6), rgb(14 18 44 / 0.85));
+  border: 1px solid rgb(160 190 255 / 0.35);
   border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
   cursor: pointer;
-  transition: background-color 150ms;
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms,
+    filter 150ms;
 
   &:hover {
-    background: rgb(40 48 96 / 0.95);
+    background-color: rgb(40 48 96 / 0.95);
+    border-color: rgb(127 249 255 / 0.7);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.12),
+      var(--glow-cyan);
+  }
+
+  &:active {
+    filter: brightness(0.9);
   }
 }
 
+/* Primary actions glow like an engine burn. */
 .button--primary {
-  color: #03121a;
-  background: var(--color-link);
+  color: var(--color-on-accent);
+  text-shadow: none;
+  background: linear-gradient(110deg, var(--color-cyan), var(--color-violet));
   border-color: transparent;
+  box-shadow: 0 0 1.25rem rgb(127 200 255 / 0.35);
 
   &:hover {
-    background: var(--color-link-hover);
+    background-color: transparent;
+    border-color: transparent;
+    filter: brightness(1.1);
+    box-shadow: 0 0 1.75rem rgb(150 200 255 / 0.55);
   }
 }
 
@@ -374,9 +579,10 @@ main {
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
-  background: rgb(6 8 22 / 0.55);
+  background: rgb(7 9 26 / 0.6);
   border: 1px solid var(--color-panel-border);
   border-radius: 999px;
+  box-shadow: 0 0 2rem -0.75rem rgb(100 130 255 / 0.45);
   backdrop-filter: blur(6px);
 }
 
@@ -396,7 +602,8 @@ main {
   touch-action: manipulation;
   transition:
     background-color 150ms,
-    color 150ms;
+    color 150ms,
+    box-shadow 150ms;
 
   /* The radio stays in the accessibility tree and keeps native arrow-key behaviour. */
   & input {
@@ -409,12 +616,13 @@ main {
 
   &:hover {
     color: var(--color-text);
-    background: rgb(255 255 255 / 0.08);
+    background-color: rgb(255 255 255 / 0.08);
   }
 
   &:has(:checked) {
-    color: #03121a;
-    background: var(--color-link);
+    color: var(--color-on-accent);
+    background: linear-gradient(110deg, var(--color-cyan), var(--color-violet));
+    box-shadow: 0 0 1rem rgb(127 200 255 / 0.45);
   }
 
   &:has(:focus-visible) {
@@ -455,17 +663,21 @@ main {
   max-height: min(40rem, 100dvh - 2rem);
   padding: clamp(1.25rem, 4vw, 2rem);
   color: var(--color-text);
-  background: #0b0f26;
-  border: 1px solid var(--color-panel-border);
+  background:
+    radial-gradient(120% 60% at 0% 0%, rgb(110 90 230 / 0.22), transparent 60%),
+    radial-gradient(90% 50% at 100% 100%, rgb(40 160 200 / 0.14), transparent 60%), #0a0d22;
+  border: 1px solid rgb(127 249 255 / 0.3);
   border-radius: var(--radius);
-  box-shadow: 0 2rem 4rem rgb(0 0 0 / 0.6);
+  box-shadow:
+    0 2rem 4rem rgb(0 0 0 / 0.6),
+    0 0 4rem -1rem rgb(100 130 255 / 0.5);
 
   &:modal {
     overscroll-behavior: contain;
   }
 
   &::backdrop {
-    background: rgb(0 0 10 / 0.55);
+    background: radial-gradient(circle at 50% 40%, rgb(20 20 60 / 0.45), rgb(0 0 10 / 0.7));
     overflow: hidden;
     overscroll-behavior: contain;
   }
@@ -476,6 +688,17 @@ main {
 
   & h2 {
     font-size: 1.5rem;
+
+    &::after {
+      content: "";
+      display: block;
+      inline-size: 3rem;
+      block-size: 3px;
+      margin-block-start: 0.45em;
+      background: var(--gradient-nebula);
+      border-radius: 2px;
+      box-shadow: var(--glow-cyan);
+    }
   }
 
   & form {
@@ -494,7 +717,7 @@ main {
     justify-content: space-between;
     gap: 0.25rem 1rem;
     padding-block: 0.4rem;
-    border-block-end: 1px solid rgb(255 255 255 / 0.08);
+    border-block-end: 1px solid rgb(160 190 255 / 0.12);
   }
 
   & dt {
@@ -503,6 +726,40 @@ main {
 
   & dd {
     color: var(--color-muted);
+  }
+}
+
+/* ---------- High contrast ---------- */
+@media (forced-colors: active) {
+  /* Decorative glows and gradients are dropped; system colours draw the essentials. */
+  .hero__name {
+    color: CanvasText;
+    background: none;
+    filter: none;
+  }
+
+  .panel::before,
+  .hero__tagline::before,
+  .panel h2::after,
+  .explore-dialog h2::after,
+  .entry::after {
+    display: none;
+  }
+
+  .entry::before {
+    background: CanvasText;
+  }
+
+  /* Background images may be dropped in high contrast, so use a real underline. */
+  a {
+    text-decoration: underline;
+  }
+
+  .button--primary,
+  .focus-picker__option:has(:checked) {
+    forced-color-adjust: none;
+    color: HighlightText;
+    background: Highlight;
   }
 }
 

@@ -8,6 +8,12 @@ import { App } from "./App.tsx";
 const container = document.getElementById("root");
 if (!container) throw new Error("Missing #root element");
 
+// Always open at the top of the page, even on refresh or from a link with a #section:
+// the 3D camera follows the scroll position, so the story should start from the beginning.
+history.scrollRestoration = "manual";
+if (location.hash) history.replaceState(history.state, "", location.pathname + location.search);
+window.scrollTo(0, 0);
+
 const app = (
   <StrictMode>
     <App />

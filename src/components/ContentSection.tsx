@@ -9,7 +9,14 @@ export function ContentSection({ section, align }: ContentSectionProps) {
   const titleId = `${section.id}-title`;
 
   return (
-    <section id={section.id} className="section" data-align={align} aria-labelledby={titleId}>
+    <section
+      id={section.id}
+      className="section"
+      data-align={align}
+      aria-labelledby={titleId}
+      // Focusable from script only, so "Scroll to explore" can move focus here.
+      tabIndex={-1}
+    >
       <div className="panel">
         <h2 id={titleId}>
           <span aria-hidden="true">{section.emoji}</span> {section.title}
@@ -27,11 +34,11 @@ function SectionBody({ section }: { section: Section }) {
 
     case "skills":
       return (
-        <dl className="skills">
+        <dl className="entries">
           {section.skills.map(({ category, items }) => (
-            <div key={category}>
-              <dt>{category}</dt>
-              <dd>{items}</dd>
+            <div key={category} className="entry">
+              <dt className="entry__title">{category}</dt>
+              <dd className="entry__body">{items}</dd>
             </div>
           ))}
         </dl>
@@ -41,7 +48,7 @@ function SectionBody({ section }: { section: Section }) {
       return (
         <>
           {section.intro}
-          <ul className="projects">
+          <ul className="entries">
             {section.projects.map((project) => (
               <ProjectItem key={project.name} project={project} />
             ))}
@@ -53,8 +60,8 @@ function SectionBody({ section }: { section: Section }) {
 
 function ProjectItem({ project }: { project: Project }) {
   return (
-    <li className="project">
-      <h3>
+    <li className="entry">
+      <h3 className="entry__title">
         <a href={project.url}>{project.name}</a>
         {project.sourceUrl && (
           <>
@@ -65,7 +72,7 @@ function ProjectItem({ project }: { project: Project }) {
           </>
         )}
       </h3>
-      <p>{project.description}</p>
+      <p className="entry__body">{project.description}</p>
     </li>
   );
 }
