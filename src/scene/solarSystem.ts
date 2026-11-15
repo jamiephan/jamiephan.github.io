@@ -239,7 +239,8 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     system.position.copy(position);
     system.quaternion.setFromUnitVectors(Y_AXIS, pole);
 
-    const map = load(spec.url);
+    // Anisotropic filtering keeps the surface crisp towards the limb when zoomed in close.
+    const map = load(spec.url, { sharp: true });
     let ringUniforms;
     if (spec.rings) {
       ringUniforms = createRingUniforms(
@@ -274,9 +275,9 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
             limbDarkening: spec.limbDarkening,
           });
 
-    // Tessellation scales with size: the small ones are only ever a few pixels wide.
-    const segments = radius > 10 ? 96 : 48;
-    const planet = new Mesh(new SphereGeometry(radius, segments, segments / 2), material);
+    // Any planet can fill the screen in explore and flight mode, so all get enough segments
+    // for a round silhouette at that size (a few thousand vertices each: negligible).
+    const planet = new Mesh(new SphereGeometry(radius, 128, 64), material);
     planet.scale.y = spec.oblateness ?? 1;
     system.add(planet);
     group.add(system);
