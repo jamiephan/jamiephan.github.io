@@ -39,6 +39,7 @@ src/
   scene/solarSystem.ts     Other planets, asteroid belt and comet
   scene/stars.ts           Procedural starfield (magnitudes, black-body colours)
   assets/textures/         Planet and sky textures (see Credits)
+  assets/textures/preview/ Low-res copies loaded first; full size loads on entering explore mode
   styles/global.css        Global styles
 vite.config.ts             Vite+ config (build, lint, fmt, test)
 ```

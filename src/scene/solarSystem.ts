@@ -77,7 +77,6 @@ interface PlanetSpec {
   oblateness?: number;
   surface: "rocky" | "cloudy";
   /** Texture size, for bump mapping rocky surfaces. */
-  textureSize?: [number, number];
   rim?: Color;
   limbDarkening?: number;
   rings?: { url: string; inner: number; outer: number };
@@ -94,7 +93,6 @@ const PLANETS: readonly PlanetSpec[] = [
     pole: new Vector3(0, 0, 1),
     spin: 0.5,
     surface: "rocky",
-    textureSize: [1024, 512],
   },
   {
     id: "venus",
@@ -117,7 +115,6 @@ const PLANETS: readonly PlanetSpec[] = [
     pole: new Vector3(0.3, 0.1, 1).normalize(),
     spin: 3,
     surface: "rocky",
-    textureSize: [2048, 1024],
     rim: new Color(0.12, 0.07, 0.05),
   },
   {
@@ -282,7 +279,6 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     const material =
       spec.surface === "rocky"
         ? createRockyMaterial(map, lighting, {
-            texelSize: [1 / spec.textureSize![0], 1 / spec.textureSize![1]],
             bump: 5,
             rim: spec.rim,
           })

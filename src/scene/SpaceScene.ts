@@ -46,6 +46,7 @@ import {
 import { degToRad, lerp, perFrameAt60, scrollProgress } from "./math.ts";
 import { DEFAULT_BODY, type BodyId } from "./bodies.ts";
 import { createSolarSystem, type FocusTarget, type SolarSystem } from "./solarSystem.ts";
+import { previewFor } from "./textures.ts";
 import { generateStarfield } from "./stars.ts";
 
 /* ---------- Layout (world units; +Z is "up" on screen, the camera looks along +Y) ---------- */
@@ -150,6 +151,8 @@ export class SpaceScene {
   readonly #camera: PerspectiveCamera;
   readonly #controls: OrbitControls;
   readonly #textures: Texture[] = [];
+  /** Textures showing a low-res preview, and the full-resolution file to swap in later. */
+  #pendingDetail: { texture: Texture; url: string }[] = [];
   readonly #resizeObserver: ResizeObserver;
   readonly #reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   readonly #abort = new AbortController();
@@ -231,7 +234,10 @@ export class SpaceScene {
     const loader = new TextureLoader(manager);
     const anisotropy = Math.min(8, this.#renderer.capabilities.getMaxAnisotropy());
     const load = (url: string, { color = true, sharp = false } = {}): Texture => {
-      const texture = loader.load(url, () => (this.#needsRender = true));
+      // Start with the small preview if there is one; `#loadDetail` fetches the rest later.
+      const preview = previewFor(url);
+      const texture = loader.load(preview ?? url, () => (this.#needsRender = true));
+      if (preview) this.#pendingDetail.push({ texture, url });
       texture.colorSpace = color ? SRGBColorSpace : NoColorSpace;
       if (sharp) texture.anisotropy = anisotropy;
       this.#textures.push(texture);
@@ -307,7 +313,6 @@ export class SpaceScene {
     this.#moon = new Mesh(
       new SphereGeometry(MOON_RADIUS, 64, 32),
       createRockyMaterial(load(moonUrl, { sharp: true }), lighting, {
-        texelSize: [1 / 2048, 1 / 1024],
         // The Earth eclipses the Moon, and lights its night side (earthshine).
         occluder: { value: new Vector4(0, 0, 0, EARTH_RADIUS) },
         ambient: new Color(0.015, 0.02, 0.03),
@@ -374,6 +379,23 @@ export class SpaceScene {
     this.#renderer.setAnimationLoop((time) => this.#tick(time));
   }
 
+  /**
+   * Swap the preview textures for full resolution. Only done once someone starts exploring and
+   * can zoom in, so a normal visit never downloads the large files.
+   */
+  #loadDetail(): void {
+    const loader = new TextureLoader();
+    for (const { texture, url } of this.#pendingDetail) {
+      loader.load(url, (full) => {
+        // Re-uploads the image (and regenerates mipmaps) on the next render.
+        texture.image = full.image;
+        texture.needsUpdate = true;
+        this.#needsRender = true;
+      });
+    }
+    this.#pendingDetail = [];
+  }
+
   /** Toggle free-roam mode where the user drives the camera with orbit controls. */
   setExploring(exploring: boolean): void {
     if (exploring === this.#exploring) return;
@@ -381,6 +403,7 @@ export class SpaceScene {
     this.#lastPointer = null;
 
     if (exploring) {
+      this.#loadDetail();
       this.#controls.connect(this.#renderer.domElement);
       this.#controls.enabled = true;
     } else {

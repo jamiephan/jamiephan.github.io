@@ -353,8 +353,6 @@ const RIM = /* glsl */ `
 `;
 
 export interface RockyBodyOptions {
-  /** Height of one texel in UV units: [1 / width, 1 / height]. */
-  texelSize: [number, number];
   /** Strength of the bump derived from albedo. */
   bump?: number;
   /** A sphere that can eclipse the Sun (xyz = centre, w = radius). */
@@ -370,18 +368,16 @@ export const createRockyMaterial = (
   map: Texture,
   lighting: LightingUniforms,
   {
-    texelSize,
     bump = 7,
     occluder = { value: new Vector4(0, 0, 0, 0) },
     ambient = new Color(0.004, 0.005, 0.007),
     rim = new Color(0, 0, 0),
-  }: RockyBodyOptions,
+  }: RockyBodyOptions = {},
 ): ShaderMaterial =>
   new ShaderMaterial({
     uniforms: {
       ...lighting,
       uMap: { value: map },
-      uTexel: { value: new Vector2(...texelSize) },
       uBump: { value: bump },
       uOccluder: occluder,
       uAmbient: { value: ambient },
@@ -393,7 +389,6 @@ export const createRockyMaterial = (
       ${RIM}
       ${SPHERE_VARYINGS}
       uniform sampler2D uMap;
-      uniform vec2 uTexel;
       uniform float uBump;
       uniform vec3 uSunDir;
       uniform vec3 uSunColor;
@@ -405,8 +400,10 @@ export const createRockyMaterial = (
         vec3 albedo = texture2D(uMap, vUv).rgb;
 
         // Bump from the albedo's luminance gradient: craters and ridges catch the light.
-        vec2 dx = vec2(uTexel.x * 1.5, 0.0);
-        vec2 dy = vec2(0.0, uTexel.y * 1.5);
+        // Measured from the texture itself, so it stays right when a preview is swapped out.
+        vec2 texel = 1.0 / vec2(textureSize(uMap, 0));
+        vec2 dx = vec2(texel.x * 1.5, 0.0);
+        vec2 dy = vec2(0.0, texel.y * 1.5);
         float gx = lum(texture2D(uMap, vUv + dx).rgb) - lum(texture2D(uMap, vUv - dx).rgb);
         float gy = lum(texture2D(uMap, vUv + dy).rgb) - lum(texture2D(uMap, vUv - dy).rgb);
         vec3 tangentNormal = normalize(vec3(-gx * uBump, -gy * uBump, 1.0));
