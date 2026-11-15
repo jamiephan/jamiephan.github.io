@@ -67,6 +67,13 @@ export function useExploreMode({ onResetView }: ExploreModeOptions) {
   }, []);
   const endFlight = useCallback(() => setFlying(false), []);
 
+  /** Drop out of fullscreen but keep flying (e.g. before handing over to a VR headset). */
+  const leaveFullscreen = useCallback(() => {
+    // Cleared first so the fullscreenchange handler below doesn't take it as "end the flight".
+    fullscreenRef.current = false;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }, []);
+
   // Leave fullscreen when the flight ends, if it was the flight that entered it.
   useEffect(() => {
     if (flying || !fullscreenRef.current) return;
@@ -140,6 +147,7 @@ export function useExploreMode({ onResetView }: ExploreModeOptions) {
     exit,
     startFlight,
     endFlight,
+    leaveFullscreen,
     openHelp: useCallback(() => setHelpOpen(true), []),
     closeHelp: useCallback(() => setHelpOpen(false), []),
   };

@@ -49,8 +49,18 @@ export function App() {
     backgroundRef.current?.resetView();
     moveSun(0);
   }, [moveSun]);
-  const { exploring, helpOpen, flying, enter, exit, openHelp, closeHelp, startFlight, endFlight } =
-    useExploreMode({ onResetView: resetView });
+  const {
+    exploring,
+    helpOpen,
+    flying,
+    enter,
+    exit,
+    openHelp,
+    closeHelp,
+    startFlight,
+    endFlight,
+    leaveFullscreen,
+  } = useExploreMode({ onResetView: resetView });
   const beginFlight = useCallback(() => {
     requestTiltPermission();
     startFlight();
@@ -61,7 +71,11 @@ export function App() {
   const [inVR, setInVR] = useState(false);
   // Remembered between flights, so hiding the hints once is enough for the visit.
   const [flightHintsHidden, setFlightHintsHidden] = useState(false);
-  const enterVR = useCallback(() => backgroundRef.current?.enterVR(), []);
+  const enterVR = useCallback(() => {
+    // Fullscreen and an immersive session don't mix well: drop out of fullscreen first.
+    leaveFullscreen();
+    backgroundRef.current?.enterVR();
+  }, [leaveFullscreen]);
   const exitVR = useCallback(() => backgroundRef.current?.exitVR(), []);
   const rollLeft = useCallback((on: boolean) => backgroundRef.current?.setRoll(-1, on), []);
   const rollRight = useCallback((on: boolean) => backgroundRef.current?.setRoll(1, on), []);
