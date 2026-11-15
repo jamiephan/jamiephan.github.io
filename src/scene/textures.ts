@@ -28,3 +28,22 @@ for (const [path, url] of Object.entries(full)) {
 
 /** The preview to load first for a full-resolution texture URL, if there is one. */
 export const previewFor = (url: string): string | undefined => previewByUrl.get(url);
+
+/**
+ * Up-to-8K versions in `assets/textures/hd/` (same file name), loaded only for the body being
+ * explored or flown close to; see `hdTextures.ts`.
+ */
+const hd = import.meta.glob<string>("../assets/textures/hd/*.webp", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+const hdByName = new Map(Object.entries(hd).map(([path, url]) => [fileName(path), url]));
+const hdByUrl = new Map<string, string>();
+for (const [path, url] of Object.entries(full)) {
+  const detail = hdByName.get(fileName(path));
+  if (detail) hdByUrl.set(url, detail);
+}
+
+/** The HD version of a full-resolution texture URL, if there is one. */
+export const hdFor = (url: string): string | undefined => hdByUrl.get(url);

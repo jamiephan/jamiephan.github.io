@@ -6,6 +6,7 @@ import {
   Color,
   Euler,
   FrontSide,
+  Frustum,
   Group,
   ImageBitmapLoader,
   LineSegments,
@@ -21,6 +22,7 @@ import {
   RepeatWrapping,
   Scene,
   ShaderMaterial,
+  Sphere,
   SphereGeometry,
   SRGBColorSpace,
   Texture,
@@ -56,7 +58,8 @@ import { degToRad, lerp, perFrameAt60, scrollProgress } from "./math.ts";
 import { DEFAULT_BODY, type BodyId } from "./bodies.ts";
 import { FlightController, type Obstacle } from "./flight.ts";
 import { createSolarSystem, type FocusTarget, type SolarSystem } from "./solarSystem.ts";
-import { previewFor } from "./textures.ts";
+import { hdFor, previewFor } from "./textures.ts";
+import { HdTextures, replaceImage } from "./hdTextures.ts";
 import { isVRSupported, readVRInput } from "./xr.ts";
 import { NEBULA_RANGE, NebulaTexture } from "./nebula.ts";
 import { NebulaClouds } from "./nebulaClouds.ts";
@@ -128,6 +131,15 @@ const SPEED_REPORT_MS = 100;
 // A fifth of the gap, so layers just above a surface (the Earth's clouds) are never clipped.
 const FLIGHT_NEAR = { fraction: 0.2, min: 0.003, max: 0.5 };
 const DEFAULT_NEAR = 0.5;
+/**
+ * HD level of detail, by a body's diameter on screen in device pixels. A 2K map spreads ~1,000
+ * texels across the visible disc, so past that it starts to blur: switch to HD. Drop back only
+ * well below, so hovering around the threshold doesn't load and release it over and over.
+ */
+const HD_LOD_PIXELS = { load: 1000, release: 650 };
+/** HD maps are up to 8K wide: only on devices that take that size and have memory to spare. */
+const HD_TEXTURE_SIZE = 8192;
+const HD_MIN_DEVICE_MEMORY_GB = 4;
 
 /** Degrees per second. */
 const SPEED = {
@@ -215,6 +227,8 @@ export class SpaceScene {
   readonly #textures: Texture[] = [];
   /** Textures showing a low-res preview, and the full-resolution file to swap in later. */
   #pendingDetail: { texture: Texture; url: string }[] = [];
+  /** Up-to-8K maps for the one body being looked at up close. */
+  readonly #hd: HdTextures;
   readonly #resizeObserver: ResizeObserver;
   readonly #reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   readonly #abort = new AbortController();
@@ -286,6 +300,9 @@ export class SpaceScene {
   readonly #sunDirection: Vector3;
 
   readonly #scratch = new Vector3();
+  readonly #frustum = new Frustum();
+  readonly #frustumMatrix = new Matrix4();
+  readonly #sphere = new Sphere();
   /** The camera in its default (non-explore) pose, used to time the comet's orbit. */
   readonly #viewProbe = new PerspectiveCamera(60, 1, 0.5, CAMERA_FAR);
   readonly #focusPoint = new Vector3();
@@ -382,13 +399,31 @@ export class SpaceScene {
     manager.onError = (url) => console.warn(`Failed to load texture: ${url}`);
     const loader = this.#createImageLoader(manager);
     const anisotropy = Math.min(8, this.#renderer.capabilities.getMaxAnisotropy());
-    const load = (url: string, { color = true, sharp = false, wrap = true } = {}): Texture => {
+    // `deviceMemory` is Chromium-only (and rounded); elsewhere, trust the texture size limit.
+    const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+    this.#hd = new HdTextures(
+      this.#renderer.capabilities.maxTextureSize >= HD_TEXTURE_SIZE &&
+        (memory ?? Infinity) >= HD_MIN_DEVICE_MEMORY_GB,
+      () => this.#createImageLoader(),
+      () => (this.#needsRender = true),
+    );
+    const load = (
+      url: string,
+      {
+        color = true,
+        sharp = false,
+        wrap = true,
+        body,
+      }: { color?: boolean; sharp?: boolean; wrap?: boolean; body?: BodyId } = {},
+    ): Texture => {
       // Start with the small preview if there is one; `#loadDetail` fetches the rest later.
       const preview = previewFor(url);
       const texture = new Texture();
       texture.flipY = false; // the loader already flips the bitmap
       loader.load(preview ?? url, (image) => this.#setImage(texture, image));
       if (preview) this.#pendingDetail.push({ texture, url });
+      const hd = body && hdFor(url);
+      if (body && hd) this.#hd.register(texture, body, hd);
       texture.colorSpace = color ? SRGBColorSpace : NoColorSpace;
       if (sharp) texture.anisotropy = anisotropy;
       // Globe maps wrap round in longitude. Clamping would draw a seam where u meets 0/1 (the
@@ -438,7 +473,7 @@ export class SpaceScene {
       night: load(earthNightUrl),
       normal: load(earthNormalUrl, { color: false, sharp: true }),
       specular: load(earthSpecularUrl, { color: false }),
-      clouds: load(earthCloudsUrl, { color: false, sharp: true }),
+      clouds: load(earthCloudsUrl, { color: false, sharp: true, body: "earth" }),
     };
 
     // Tilt the spin axis towards the Sun (northern summer), then spin about local +Y.
@@ -604,9 +639,10 @@ export class SpaceScene {
       image.close();
       return;
     }
+    // Textures with an HD version keep their usual image aside while the HD one shows.
+    if (this.#hd.setBase(texture, image)) return;
     const previous = texture.image;
-    texture.image = image;
-    texture.needsUpdate = true;
+    replaceImage(texture, image);
     if (previous instanceof ImageBitmap) previous.close();
     this.#needsRender = true;
   }
@@ -817,6 +853,7 @@ export class SpaceScene {
       texture.dispose();
       if (texture.image instanceof ImageBitmap) texture.image.close();
     }
+    this.#hd.dispose();
     this.#nebula.dispose();
     this.#nebulaClouds.dispose();
     this.#post.dispose();
@@ -1264,6 +1301,45 @@ export class SpaceScene {
     return best?.id ?? null;
   }
 
+  /**
+   * The body to show in HD: the focused one while exploring; in flight, the nearest one if it's
+   * close; none on the page itself (nothing is big enough there to need it).
+   */
+  #updateHdBody(): void {
+    // Only explore and flight get close enough to need it (and VR has its own resolution).
+    if (!this.#exploring || this.#renderer.xr.isPresenting) {
+      this.#hd.setActive(null);
+      return;
+    }
+    const camera = this.#camera;
+    const pixelsPerUnit =
+      this.#renderer.domElement.height / (2 * Math.tan(degToRad(camera.fov / 2)));
+    this.#frustum.setFromProjectionMatrix(
+      this.#frustumMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
+    );
+
+    const current = this.#hd.active;
+    let keepCurrent = false;
+    let best: { id: BodyId; pixels: number } | null = null;
+    for (const [id, target] of this.#targets) {
+      if (id === "comet") continue;
+      const centre = target.getPosition(this.#scratch);
+      const distance = centre.distanceTo(camera.position);
+      // Diameter on screen (tangent of the angular radius, so it grows right up to the surface).
+      const pixels =
+        distance <= target.radius
+          ? Infinity
+          : (2 * pixelsPerUnit * target.radius) / Math.sqrt(distance ** 2 - target.radius ** 2);
+      if (id === current && pixels >= HD_LOD_PIXELS.release) keepCurrent = true;
+      this.#sphere.set(centre, target.radius);
+      if (pixels < HD_LOD_PIXELS.load || !this.#frustum.intersectsSphere(this.#sphere)) continue;
+      if (!best || pixels > best.pixels) best = { id, pixels };
+    }
+    // The biggest body in view past the threshold; otherwise hold on to the current one until
+    // it's well below it (turning away from it briefly doesn't release it).
+    this.#hd.setActive(best?.id ?? (keepCurrent ? current : null));
+  }
+
   /** Bake one strip of whichever nebula texture isn't finished yet. */
   #stepBakes(): void {
     const bakes = [this.#nebula.bake, this.#nebulaClouds.bake];
@@ -1290,6 +1366,10 @@ export class SpaceScene {
     this.#galaxies.group.position.copy(this.#camera.position);
     this.#dust.uCameraPos.value.copy(this.#camera.position);
     this.#updateDynamicUniforms();
+    // The belt's level of detail and culling need this frame's camera matrices. (The headset
+    // looks around from the ship's position, so in VR only the detail level applies.)
+    this.#camera.updateMatrixWorld();
+    this.#solarSystem.updateBelt(this.#camera, !this.#renderer.xr.isPresenting);
     if (this.#renderer.xr.isPresenting) {
       this.#renderer.render(this.#scene, this.#vrCamera);
       return;
@@ -1371,6 +1451,7 @@ export class SpaceScene {
       this.#updateExploreCamera(delta);
     }
 
+    this.#updateHdBody();
     this.#trackMotion(delta);
     this.#flashes.value = this.#reducedMotion ? 0 : 1;
     this.#updateSunAndExposure(delta);

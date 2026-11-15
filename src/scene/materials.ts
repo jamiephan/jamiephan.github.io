@@ -415,8 +415,9 @@ export const createRockyMaterial = (
         vec3 albedo = texture2D(uMap, vUv).rgb;
 
         // Bump from the albedo's luminance gradient: craters and ridges catch the light.
-        // Measured from the texture itself, so it stays right when a preview is swapped out.
-        vec2 texel = 1.0 / vec2(textureSize(uMap, 0));
+        // Measured over 1.5 texels, so it stays right when a preview is swapped out, but never
+        // less than 1.5 texels of a 2K map: finer, an HD map's tiny steps would flatten it.
+        vec2 texel = max(1.0 / vec2(textureSize(uMap, 0)), 1.0 / vec2(2048.0, 1024.0));
         vec2 dx = vec2(texel.x * 1.5, 0.0);
         vec2 dy = vec2(0.0, texel.y * 1.5);
         float gx = lum(texture2D(uMap, vUv + dx).rgb) - lum(texture2D(uMap, vUv - dx).rgb);

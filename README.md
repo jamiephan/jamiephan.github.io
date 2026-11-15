@@ -40,6 +40,7 @@ src/
   scene/stars.ts           Procedural starfield (magnitudes, black-body colours)
   assets/textures/         Planet and sky textures (see Credits)
   assets/textures/preview/ Low-res copies loaded first; full size loads on entering explore mode
+  assets/textures/hd/      Up-to-8K maps, loaded only for the body being explored or flown close to
   styles/global.css        Global styles
 vite.config.ts             Vite+ config (build, lint, fmt, test)
 ```
@@ -52,4 +53,4 @@ Every push to `main` runs `.github/workflows/deploy.yml`. It checks, tests and b
 
 ## Credits
 
-Planet and Milky Way textures are from [Solar System Scope](https://www.solarsystemscope.com/textures/) (based on NASA imagery), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). They were resized and re-encoded to WebP.
+Planet and Milky Way textures are from [Solar System Scope](https://www.solarsystemscope.com/textures/) (based on NASA imagery), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). They were resized and re-encoded to WebP. Where no larger original exists, the HD maps were upscaled with [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) (`realesrgan-x4plus`, wrap-padded so the seam stays continuous): Jupiter and Saturn from 4K to 8K, Uranus and Neptune from 2K to 4K. Mercury's HD map was lightly denoised and its seam blended.

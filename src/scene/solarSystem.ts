@@ -5,10 +5,12 @@
  * but the order from the Sun is real; see `layout.ts` for where everything sits.
  */
 import {
+  Box3,
   BufferAttribute,
   BufferGeometry,
   type Camera,
   Color,
+  Frustum,
   Group,
   IcosahedronGeometry,
   InstancedMesh,
@@ -64,7 +66,8 @@ import { mulberry32 } from "./stars.ts";
 export type TextureLoad = (
   url: string,
   /** `wrap`: repeat in u, as a globe map does (the default). */
-  options?: { color?: boolean; sharp?: boolean; wrap?: boolean },
+  /** `body`: the body it belongs to, so its HD version can load when it's looked at. */
+  options?: { color?: boolean; sharp?: boolean; wrap?: boolean; body?: BodyId },
 ) => Texture;
 
 const Y_AXIS = new Vector3(0, 1, 0);
@@ -169,7 +172,16 @@ const BELT = {
   count: 7000,
   /** Units per second the rocks drift along the band (they're orbiting the Sun). */
   speed: 1.5,
+  /**
+   * The band is drawn in this many pieces along its length, so pieces out of view can be
+   * skipped and distant ones drawn with simpler rocks.
+   */
+  chunks: 32,
+  /** Within this distance of a piece, its rocks get the detailed shape (80 faces, not 20). */
+  nearDistance: 60,
 } as const;
+/** Largest extent of a rock from its centre (size × stretch × dents), for chunk bounds. */
+const ROCK_REACH = 2.6;
 
 /* ---------- Comet ---------- */
 
@@ -225,6 +237,12 @@ export interface SolarSystem {
   fitCometToView: (camera: Camera) => number;
   /** Device pixels per world unit at distance 1, for sizing comet dust grains. */
   setPointScale: (scale: number) => void;
+  /**
+   * Level of detail for the asteroid belt, just before drawing: skip pieces `camera` can't see
+   * (unless `cull` is off, e.g. in VR, where the headset looks around freely) and use simpler
+   * rocks for distant ones.
+   */
+  updateBelt: (camera: Camera, cull: boolean) => void;
 }
 
 export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms): SolarSystem => {
@@ -244,7 +262,7 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     system.quaternion.setFromUnitVectors(Y_AXIS, pole);
 
     // Anisotropic filtering keeps the surface crisp towards the limb when zoomed in close.
-    const map = load(spec.url, { sharp: true });
+    const map = load(spec.url, { sharp: true, body: spec.id });
     let ringUniforms;
     if (spec.rings) {
       ringUniforms = createRingUniforms(
@@ -300,7 +318,7 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
   const beltShift = { value: 0 };
   const belt = createAsteroidBelt(lighting, beltTime, beltShift);
   const comet = createComet(lighting);
-  group.add(belt, comet.group);
+  group.add(belt.group, comet.group);
 
   const setOrientation = (backdrop: Quaternion, cometFrame: Quaternion): void => {
     group.quaternion.copy(backdrop);
@@ -333,12 +351,16 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     setOrientation,
     fitCometToView: comet.fitToView,
     setPointScale: comet.setPointScale,
+    updateBelt: belt.update,
   };
 };
 
-/** A rough, faceted rock: an icosphere with deterministic per-vertex dents. */
-const createRockGeometry = (): BufferGeometry => {
-  const geometry = new IcosahedronGeometry(1, 1);
+/**
+ * A rough, faceted rock: an icosphere with deterministic per-vertex dents. `detail` 1 has 80
+ * faces (240 vertices); 0 has 20 (60 vertices), plenty for a rock a few pixels wide.
+ */
+const createRockGeometry = (detail: 0 | 1): BufferGeometry => {
+  const geometry = new IcosahedronGeometry(1, detail);
   const position = geometry.getAttribute("position") as BufferAttribute;
   const v = new Vector3();
   for (let i = 0; i < position.count; i++) {
@@ -352,20 +374,32 @@ const createRockGeometry = (): BufferGeometry => {
   return geometry;
 };
 
+interface AsteroidBelt {
+  group: Group;
+  update: (camera: Camera, cull: boolean) => void;
+}
+
 const createAsteroidBelt = (
   lighting: LightingUniforms,
   beltTime: { value: number },
   beltShift: { value: number },
-): InstancedMesh => {
+): AsteroidBelt => {
   const random = mulberry32(2024);
-  const belt = new InstancedMesh(
-    createRockGeometry(),
-    createAsteroidMaterial(lighting, beltTime, { shift: beltShift, length: BELT.length }),
-    BELT.count,
-  );
+  const detailed = createRockGeometry(1);
+  const simple = createRockGeometry(0);
+  const material = createAsteroidMaterial(lighting, beltTime, {
+    shift: beltShift,
+    length: BELT.length,
+  });
   const dummy = new Object3D();
-  const color = new Color();
+  const chunkLength = BELT.length / BELT.chunks;
+  const half = BELT.length / 2;
 
+  // Generate every rock (same sequence as ever), then sort them into chunks along the band.
+  const rocks = Array.from(
+    { length: BELT.chunks },
+    () => [] as { matrix: Matrix4; color: Color }[],
+  );
   for (let i = 0; i < BELT.count; i++) {
     // Local frame: x along the band, y the ecliptic normal, z towards the Sun. Denser towards
     // the middle of the band; thin and slightly flared vertically.
@@ -384,29 +418,74 @@ const createAsteroidBelt = (
     );
     dummy.rotation.set(random() * 6.3, random() * 6.3, random() * 6.3);
     dummy.updateMatrix();
-    belt.setMatrixAt(i, dummy.matrix);
 
     // Carbonaceous greys to stony browns.
     const albedo = 0.09 + random() * 0.13;
     const warmth = random();
-    belt.setColorAt(
-      i,
-      color.setRGB(albedo * (1 + 0.25 * warmth), albedo * (1 + 0.1 * warmth), albedo * 0.95),
-    );
+    const chunk = Math.min(BELT.chunks - 1, Math.floor((along + half) / chunkLength));
+    rocks[chunk]!.push({
+      matrix: dummy.matrix.clone(),
+      color: new Color(albedo * (1 + 0.25 * warmth), albedo * (1 + 0.1 * warmth), albedo * 0.95),
+    });
   }
 
+  const group = new Group();
   const along = new Vector3().crossVectors(ECLIPTIC_NORMAL, SUN_DIRECTION).normalize();
-  belt.quaternion.setFromRotationMatrix(
+  group.quaternion.setFromRotationMatrix(
     new Matrix4().makeBasis(
       along,
       ECLIPTIC_NORMAL,
       new Vector3().crossVectors(along, ECLIPTIC_NORMAL),
     ),
   );
-  belt.instanceMatrix.needsUpdate = true;
-  // The rocks drift in the shader, so the computed bounds would be wrong.
-  belt.frustumCulled = false;
-  return belt;
+
+  const chunks = rocks.map((list, index) => {
+    const mesh = new InstancedMesh(simple, material, list.length);
+    list.forEach(({ matrix, color: tint }, i) => {
+      mesh.setMatrixAt(i, matrix);
+      mesh.setColorAt(i, tint);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    // The rocks drift in the shader; `update` culls whole chunks instead.
+    mesh.frustumCulled = false;
+    group.add(mesh);
+    return { mesh, centre: -half + (index + 0.5) * chunkLength };
+  });
+
+  const frustum = new Frustum();
+  const viewProjection = new Matrix4();
+  const toLocal = new Matrix4();
+  const camera = new Vector3();
+  const box = new Box3();
+  const worldBox = new Box3();
+
+  const update = (view: Camera, cull: boolean): void => {
+    group.updateWorldMatrix(true, false);
+    toLocal.copy(group.matrixWorld).invert();
+    view.getWorldPosition(camera).applyMatrix4(toLocal);
+    if (cull) {
+      frustum.setFromProjectionMatrix(
+        viewProjection.multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse),
+      );
+    }
+    for (const { mesh, centre } of chunks) {
+      // Where the shader has drifted this chunk to (it wraps round the band like each rock).
+      const x = MathUtils.euclideanModulo(centre + beltShift.value + half, BELT.length) - half;
+      // Mid-wrap, its rocks sit at both ends at once; they're shrunk to specks there anyway.
+      if (Math.abs(x) > half - chunkLength / 2) {
+        mesh.visible = true;
+        mesh.geometry = simple;
+        continue;
+      }
+      box.min.set(x - chunkLength / 2, -BELT.thickness, -BELT.outer).subScalar(ROCK_REACH);
+      box.max.set(x + chunkLength / 2, BELT.thickness, -BELT.inner).addScalar(ROCK_REACH);
+      mesh.visible =
+        !cull || frustum.intersectsBox(worldBox.copy(box).applyMatrix4(group.matrixWorld));
+      mesh.geometry = box.distanceToPoint(camera) < BELT.nearDistance ? detailed : simple;
+    }
+  };
+
+  return { group, update };
 };
 
 /** Ribbon geometry for a comet tail: `aTail` = (along 0→1, across -1→1). */
