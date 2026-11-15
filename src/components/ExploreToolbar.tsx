@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, type PointerEvent } from "react";
 import { BODIES, type BodyId } from "../scene/bodies.ts";
+import { HoldButton, RollIcon } from "./HoldButton.tsx";
 
 export interface ZoomControls {
   /** Begin a continuous zoom while a button is held: +1 in, -1 out. */
@@ -13,9 +14,14 @@ interface ExploreToolbarProps {
   focused: BodyId;
   onFocus: (id: BodyId) => void;
   zoom: ZoomControls;
+  /** Hold-to-roll the view about its line of sight. */
+  onRollLeft: (on: boolean) => void;
+  onRollRight: (on: boolean) => void;
   /** Degrees the Sun has been moved round from its default position (−180 to 180). */
   sunAngle: number;
   onSunAngle: (degrees: number) => void;
+  /** A reset is animating: everything but "Back to page" and "Controls" is disabled. */
+  locked: boolean;
   onStartFlight: () => void;
   onReset: () => void;
   onHelp: () => void;
@@ -30,8 +36,11 @@ export function ExploreToolbar({
   focused,
   onFocus,
   zoom,
+  onRollLeft,
+  onRollRight,
   sunAngle,
   onSunAngle,
+  locked,
   onStartFlight,
   onReset,
   onHelp,
@@ -40,6 +49,7 @@ export function ExploreToolbar({
   const exitRef = useRef<HTMLButtonElement>(null);
   const pickerRef = useRef<HTMLFieldSetElement>(null);
   const name = useId();
+  const lockedFocusRef = useRef<HTMLElement | null>(null);
 
   // The page content is inert while exploring, so move focus somewhere useful.
   useEffect(() => exitRef.current?.focus(), []);
@@ -51,6 +61,19 @@ export function ExploreToolbar({
       ?.closest("label")
       ?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
   }, [focused]);
+
+  // Disabling the focused control (e.g. Reset itself) drops focus to the page: put it back
+  // once the reset is over.
+  useEffect(() => {
+    if (locked) {
+      const active = document.activeElement;
+      lockedFocusRef.current = active instanceof HTMLElement ? active : null;
+      return;
+    }
+    const previous = lockedFocusRef.current;
+    lockedFocusRef.current = null;
+    if (previous?.isConnected && document.activeElement === document.body) previous.focus();
+  }, [locked]);
 
   return (
     <div className="explore-controls">
@@ -64,11 +87,16 @@ export function ExploreToolbar({
         Back to page
       </button>
       {/* Same spot as "End flight", so the two swap places. */}
-      <button type="button" className="button corner-button" onClick={onStartFlight}>
+      <button
+        type="button"
+        className="button corner-button"
+        disabled={locked}
+        onClick={onStartFlight}
+      >
         Flight mode
       </button>
 
-      <fieldset ref={pickerRef} className="focus-picker">
+      <fieldset ref={pickerRef} className="focus-picker" disabled={locked}>
         <legend className="visually-hidden">Fly to</legend>
         {BODIES.map(({ id, label }) => (
           <label key={id} className="focus-picker__option">
@@ -78,6 +106,9 @@ export function ExploreToolbar({
               value={id}
               checked={focused === id}
               onChange={() => onFocus(id)}
+              // Picking the current body again (no change event) flies back to centre it,
+              // e.g. after a flight left the camera off to one side.
+              onClick={() => focused === id && onFocus(id)}
             />
             <span>{label}</span>
           </label>
@@ -91,6 +122,7 @@ export function ExploreToolbar({
           min={-180}
           max={180}
           step={1}
+          disabled={locked}
           value={sunAngle}
           aria-valuetext={describeSunAngle(sunAngle)}
           onChange={(event) => onSunAngle(event.currentTarget.valueAsNumber)}
@@ -102,10 +134,24 @@ export function ExploreToolbar({
       </label>
 
       <div className="explore-actions">
-        <ZoomButton zoom={zoom} direction={-1} label="Zoom out" />
-        <ZoomButton zoom={zoom} direction={1} label="Zoom in" />
-        <button type="button" className="button" onClick={onReset}>
-          Reset
+        <HoldButton
+          className="button--icon explore-roll"
+          label="Roll left"
+          icon={<RollIcon direction={-1} />}
+          disabled={locked}
+          onChange={onRollLeft}
+        />
+        <HoldButton
+          className="button--icon explore-roll"
+          label="Roll right"
+          icon={<RollIcon direction={1} />}
+          disabled={locked}
+          onChange={onRollRight}
+        />
+        <ZoomButton zoom={zoom} direction={-1} label="Zoom out" disabled={locked} />
+        <ZoomButton zoom={zoom} direction={1} label="Zoom in" disabled={locked} />
+        <button type="button" className="button" disabled={locked} onClick={onReset}>
+          {locked ? "Resetting…" : "Reset"}
         </button>
         <button type="button" className="button" onClick={onHelp}>
           Controls
@@ -125,10 +171,11 @@ interface ZoomButtonProps {
   zoom: ZoomControls;
   direction: 1 | -1;
   label: string;
+  disabled: boolean;
 }
 
 /** Press and hold to keep zooming; a tap, click or keypress zooms one step. */
-function ZoomButton({ zoom, direction, label }: ZoomButtonProps) {
+function ZoomButton({ zoom, direction, label, disabled }: ZoomButtonProps) {
   const start = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
     // Keep receiving events (and so stop zooming) even if the finger slides off the button.
@@ -141,6 +188,7 @@ function ZoomButton({ zoom, direction, label }: ZoomButtonProps) {
       type="button"
       className="button button--icon explore-zoom"
       aria-label={label}
+      disabled={disabled}
       onPointerDown={start}
       onPointerUp={zoom.stop}
       onPointerCancel={zoom.stop}

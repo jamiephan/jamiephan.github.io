@@ -11,19 +11,25 @@ const isEditable = (target: EventTarget | null): boolean => {
 
 interface ExploreModeOptions {
   onResetView: () => void;
+  /** Q / E held down (or let go): roll the view left (-1) or right (+1). */
+  onRoll: (direction: -1 | 1, on: boolean) => void;
 }
+
+/** Physical keys, like flight mode's, so they sit in the same place on any layout. */
+const ROLL_KEYS: Record<string, -1 | 1> = { KeyQ: -1, KeyE: 1 };
 
 /**
  * State and keyboard shortcuts for the "explore the universe" easter egg.
  *
  * - Shift + Q: enter explore mode (or re-open the help dialog)
  * - R: reset the camera
+ * - Q / E (held): roll the view
  * - Esc: leave explore mode (or end flight mode, which is started from the toolbar)
  *
  * Flight goes fullscreen (where the browser allows it). Leaving fullscreen ends the flight,
  * since the browser keeps Esc for itself while fullscreen.
  */
-export function useExploreMode({ onResetView }: ExploreModeOptions) {
+export function useExploreMode({ onResetView, onRoll }: ExploreModeOptions) {
   const [exploring, setExploring] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [flying, setFlying] = useState(false);
@@ -132,12 +138,37 @@ export function useExploreMode({ onResetView }: ExploreModeOptions) {
       } else if (key === "r" && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         onResetView();
+      } else if (event.code in ROLL_KEYS && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        onRoll(ROLL_KEYS[event.code]!, true);
       }
     };
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [exploring, helpOpen, flying, enter, exit, onResetView]);
+  }, [exploring, helpOpen, flying, enter, exit, onResetView, onRoll]);
+
+  // Let go of Q / E: on key up, or when the keys stop applying (the help opened, a flight
+  // started, explore mode ended, or the window lost focus and won't see the key up).
+  const rollActive = exploring && !helpOpen && !flying;
+  useEffect(() => {
+    if (!rollActive) return;
+    const release = () => {
+      onRoll(-1, false);
+      onRoll(1, false);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      const direction = ROLL_KEYS[event.code];
+      if (direction) onRoll(direction, false);
+    };
+    document.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", release);
+    return () => {
+      document.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", release);
+      release();
+    };
+  }, [rollActive, onRoll]);
 
   return {
     exploring,

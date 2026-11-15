@@ -25,6 +25,10 @@ interface SpaceBackgroundProps {
   onFocusChange?: (id: BodyId) => void;
   /** Called when a VR session starts or ends. */
   onVRChange?: (inVR: boolean) => void;
+  /** Called each frame while the Sun glides home after a reset. */
+  onSunAngleChange?: (degrees: number) => void;
+  /** Called when a reset starts and when its animation has finished. */
+  onResettingChange?: (resetting: boolean) => void;
   ref?: Ref<SpaceBackgroundHandle>;
 }
 
@@ -39,6 +43,8 @@ export function SpaceBackground({
   flying,
   onFocusChange,
   onVRChange,
+  onSunAngleChange,
+  onResettingChange,
   ref,
 }: SpaceBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,6 +59,14 @@ export function SpaceBackground({
   useEffect(() => {
     onVRChangeRef.current = onVRChange;
   }, [onVRChange]);
+  const onSunAngleChangeRef = useRef(onSunAngleChange);
+  useEffect(() => {
+    onSunAngleChangeRef.current = onSunAngleChange;
+  }, [onSunAngleChange]);
+  const onResettingChangeRef = useRef(onResettingChange);
+  useEffect(() => {
+    onResettingChangeRef.current = onResettingChange;
+  }, [onResettingChange]);
   const [status, setStatus] = useState<Status>("loading");
 
   useEffect(() => {
@@ -73,6 +87,8 @@ export function SpaceBackground({
           onReady: () => !disposed && setStatus("ready"),
           onFocusChange: (id) => onFocusChangeRef.current?.(id),
           onVRChange: (inVR) => onVRChangeRef.current?.(inVR),
+          onSunAngleChange: (degrees) => onSunAngleChangeRef.current?.(degrees),
+          onResettingChange: (resetting) => onResettingChangeRef.current?.(resetting),
         });
         scene.setExploring(exploringRef.current);
         sceneRef.current = scene;

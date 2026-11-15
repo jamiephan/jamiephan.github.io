@@ -45,10 +45,16 @@ export function App() {
     setSunAngle(degrees);
     backgroundRef.current?.setSunAngle(degrees);
   }, []);
-  const resetView = useCallback(() => {
-    backgroundRef.current?.resetView();
-    moveSun(0);
-  }, [moveSun]);
+  // The scene glides the Sun home along with the camera on reset; the slider follows it
+  // (in whole degrees, matching its step, so the page only re-renders when the value moves).
+  const resetView = useCallback(() => backgroundRef.current?.resetView(), []);
+  const followSun = useCallback((degrees: number) => setSunAngle(Math.round(degrees)), []);
+  // While a reset animates, the toolbar is locked apart from "Back to page" and "Controls".
+  const [resetting, setResetting] = useState(false);
+  const roll = useCallback(
+    (direction: -1 | 1, on: boolean) => backgroundRef.current?.setRoll(direction, on),
+    [],
+  );
   const {
     exploring,
     helpOpen,
@@ -60,7 +66,7 @@ export function App() {
     startFlight,
     endFlight,
     leaveFullscreen,
-  } = useExploreMode({ onResetView: resetView });
+  } = useExploreMode({ onResetView: resetView, onRoll: roll });
   const beginFlight = useCallback(() => {
     requestTiltPermission();
     startFlight();
@@ -77,8 +83,8 @@ export function App() {
     backgroundRef.current?.enterVR();
   }, [leaveFullscreen]);
   const exitVR = useCallback(() => backgroundRef.current?.exitVR(), []);
-  const rollLeft = useCallback((on: boolean) => backgroundRef.current?.setRoll(-1, on), []);
-  const rollRight = useCallback((on: boolean) => backgroundRef.current?.setRoll(1, on), []);
+  const rollLeft = useCallback((on: boolean) => roll(-1, on), [roll]);
+  const rollRight = useCallback((on: boolean) => roll(1, on), [roll]);
   const subscribeSpeed = useCallback(
     (listener: (unitsPerSecond: number) => void) =>
       backgroundRef.current?.subscribeSpeed(listener) ?? (() => {}),
@@ -113,6 +119,8 @@ export function App() {
         flying={flying}
         onFocusChange={setFocused}
         onVRChange={setInVR}
+        onSunAngleChange={followSun}
+        onResettingChange={setResetting}
       />
 
       <div className="page" inert={exploring}>
@@ -163,8 +171,11 @@ export function App() {
           focused={focused}
           onFocus={focus}
           zoom={zoom}
+          onRollLeft={rollLeft}
+          onRollRight={rollRight}
           sunAngle={sunAngle}
           onSunAngle={moveSun}
+          locked={resetting}
           onStartFlight={beginFlight}
           onReset={resetView}
           onHelp={openHelp}

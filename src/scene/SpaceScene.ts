@@ -168,9 +168,9 @@ const MIN_PIXEL_RATIO = 0.75;
 const AMBIENT_FRAME_MS = 1000 / 60 - 2;
 /**
  * While the page is visible but not focused (another window in front, or on another screen),
- * nobody is interacting with it: draw ~30 fps whatever the mode. Hidden tabs draw nothing.
+ * nobody is interacting with it: draw ~5 fps whatever the mode. Hidden tabs draw nothing.
  */
-const UNFOCUSED_FRAME_MS = 1000 / 30 - 2;
+const UNFOCUSED_FRAME_MS = 1000 / 5 - 2;
 
 const X_AXIS = new Vector3(1, 0, 0);
 const Y_AXIS = new Vector3(0, 1, 0);
@@ -184,6 +184,10 @@ export interface SpaceSceneOptions {
   onFocusChange?: (id: BodyId) => void;
   /** Called when a VR session starts or ends. */
   onVRChange?: (inVR: boolean) => void;
+  /** Called each frame while the Sun glides back to its default position after a reset. */
+  onSunAngleChange?: (degrees: number) => void;
+  /** Called when a reset starts and when its animation (camera and Sun) has finished. */
+  onResettingChange?: (resetting: boolean) => void;
 }
 
 /** Explore mode: seconds to fly between bodies, and hold-to-zoom speed (e-folds per second). */
@@ -195,6 +199,8 @@ const ZOOM_STEP = 0.7;
 const ZOOM_EASE = 10;
 /** A press shorter than this counts as a tap (one step) rather than a hold. */
 const ZOOM_TAP_SECONDS = 0.2;
+/** Explore mode: how fast the roll buttons (and Q / E) turn the view, in radians per second. */
+const VIEW_ROLL_RATE = 1.2;
 /** A tap shorter than this, moving less than this, picks a body. */
 const TAP_MAX_MS = 350;
 const TAP_MAX_MOVE = 8;
@@ -300,6 +306,8 @@ export class SpaceScene {
   readonly #sunDirection: Vector3;
 
   readonly #scratch = new Vector3();
+  readonly #rollScratch = new Quaternion();
+  readonly #rollStep = new Quaternion();
   readonly #frustum = new Frustum();
   readonly #frustumMatrix = new Matrix4();
   readonly #sphere = new Sphere();
@@ -313,6 +321,8 @@ export class SpaceScene {
   readonly #targets = new Map<BodyId, FocusTarget>();
   readonly #onFocusChange: ((id: BodyId) => void) | undefined;
   readonly #onVRChange: ((inVR: boolean) => void) | undefined;
+  readonly #onSunAngleChange: ((degrees: number) => void) | undefined;
+  readonly #onResettingChange: ((resetting: boolean) => void) | undefined;
   /**
    * In VR the headset drives its own camera, so it rides in a rig that follows the flight
    * camera (the "ship"); head tracking then moves it around inside.
@@ -323,9 +333,19 @@ export class SpaceScene {
   #vrSupported = false;
 
   #focusId: BodyId = DEFAULT_BODY;
-  /** The explore view when flight started, so ending the flight can return to it. */
-  #preFlightView: { id: BodyId; direction: Vector3; distance: number } | null = null;
   #transition: FocusTransition | null = null;
+  /** The Sun's angle (degrees from its default position), and its glide home after a reset. */
+  #sunAngle = 0;
+  #sunReturn: { from: number; progress: number } | null = null;
+  /**
+   * Explore mode: how far the view is rolled about its line of sight (radians, positive to the
+   * right), the roll buttons held (-1 left, +1 right), and its glide back to level on reset.
+   */
+  #viewRoll = 0;
+  readonly #rollHeld = new Set<-1 | 1>();
+  #rollReturn: { from: number; progress: number } | null = null;
+  /** A reset is animating: the user's camera input is ignored until it finishes. */
+  #resetting = false;
   /** A zoom button being held, and the goal distance when it was pressed. */
   #zoom: { direction: number; held: number; from: number } | null = null;
   /** Distance the camera is easing towards after zoom buttons (null when idle). */
@@ -366,11 +386,19 @@ export class SpaceScene {
 
   constructor(
     container: HTMLElement,
-    { onReady, onFocusChange, onVRChange }: SpaceSceneOptions = {},
+    {
+      onReady,
+      onFocusChange,
+      onVRChange,
+      onSunAngleChange,
+      onResettingChange,
+    }: SpaceSceneOptions = {},
   ) {
     this.#container = container;
     this.#onFocusChange = onFocusChange;
     this.#onVRChange = onVRChange;
+    this.#onSunAngleChange = onSunAngleChange;
+    this.#onResettingChange = onResettingChange;
 
     // Renderer — cap DPR at 2; beyond that costs a lot of fill-rate for no visible gain.
     // On screen the canvas only ever receives full-screen post-processing quads, so a
@@ -409,7 +437,9 @@ export class SpaceScene {
     this.#hd = new HdTextures(
       this.#renderer.capabilities.maxTextureSize >= HD_TEXTURE_SIZE &&
         (memory ?? Infinity) >= HD_MIN_DEVICE_MEMORY_GB,
+      this.#renderer,
       () => this.#createImageLoader(),
+      (from, to) => this.#swapTexture(from, to),
       () => (this.#needsRender = true),
     );
     const load = (
@@ -662,12 +692,23 @@ export class SpaceScene {
   }
 
   #applyImage(texture: Texture, image: ImageBitmap): void {
-    // Textures with an HD version keep their usual image aside while the HD one shows.
-    if (this.#hd.setBase(texture, image)) return;
     const previous = texture.image;
     replaceImage(texture, image);
     if (previous instanceof ImageBitmap) previous.close();
     this.#needsRender = true;
+  }
+
+  /** Point every material that samples `from` at `to` instead (HD maps in and out). */
+  #swapTexture(from: Texture, to: Texture): void {
+    this.#scene.traverse((object) => {
+      const material = (object as Partial<Mesh>).material;
+      for (const m of Array.isArray(material) ? material : material ? [material] : []) {
+        if (!(m instanceof ShaderMaterial)) continue;
+        for (const uniform of Object.values(m.uniforms)) {
+          if (uniform.value === from) uniform.value = to;
+        }
+      }
+    });
   }
 
   /** Toggle free-roam mode where the user drives the camera with orbit controls. */
@@ -685,7 +726,6 @@ export class SpaceScene {
     } else {
       this.exitVR();
       this.#flight.stop();
-      this.#preFlightView = null;
       this.#controls.enabled = false;
       this.#controls.disconnect();
       this.#controls.reset();
@@ -697,6 +737,8 @@ export class SpaceScene {
       this.#pan.set(0, 0, 0);
       // The page's lighting is designed around the default Sun.
       this.setSunAngle(0);
+      this.#clearViewRoll();
+      this.#setResetting(false);
       this.#setDistanceLimits(this.#targets.get(DEFAULT_BODY)!);
       // Leaving explore mode puts the camera back on the Earth.
       this.#onFocusChange?.(DEFAULT_BODY);
@@ -709,7 +751,7 @@ export class SpaceScene {
 
   /**
    * Start or stop free flight. Starting takes over the camera where it is; stopping hands it
-   * back to the orbit controls and flies back to the body (and viewpoint) it started from.
+   * back to the orbit controls, right where the ship is.
    */
   setFlying(flying: boolean): void {
     if (!this.#exploring || flying === this.#flight.active) return;
@@ -720,33 +762,51 @@ export class SpaceScene {
     if (flying) {
       this.#loadDetail();
       this.#controls.enabled = false;
-      this.#preFlightView = {
-        id: this.#focusId,
-        direction: this.#offset
-          .subVectors(this.#camera.position, this.#controls.target)
-          .normalize()
-          .clone(),
-        distance: this.#cameraDistance(),
-      };
+      // The flight starts from the view as it is, roll included; it's level again afterwards.
+      this.#clearViewRoll();
       // Leave the mouse free where VR is available, so "Enter VR" can be clicked.
       this.#flight.start({ lockPointer: !this.#vrSupported });
     } else {
       this.exitVR();
       this.#flight.stop();
       this.#setNear(DEFAULT_NEAR);
-      // Orbit round a point just ahead, so the hand-over doesn't jump, then fly back.
-      this.#flight.pointAhead(10, this.#controls.target);
+      this.#stayAfterFlight();
       this.#controls.enabled = true;
-      const view = this.#preFlightView;
-      this.#preFlightView = null;
-      if (view) {
-        this.focus(view.id, view.direction, view.distance);
-        this.#onFocusChange?.(view.id);
-      } else {
-        this.resetView();
-      }
     }
     this.#needsRender = true;
+  }
+
+  /**
+   * Hand the camera from the ship to the orbit controls without moving it: follow the nearest
+   * body, orbiting a point straight ahead (as far away as that body), with the ship's roll.
+   */
+  #stayAfterFlight(): void {
+    const camera = this.#camera;
+    const position = this.#focusPoint;
+    let nearest: { id: BodyId; target: FocusTarget; distance: number } | null = null;
+    for (const [id, target] of this.#targets) {
+      const distance = target.getPosition(position).distanceTo(camera.position);
+      if (!nearest || distance - target.radius < nearest.distance - nearest.target.radius)
+        nearest = { id, target, distance };
+    }
+    if (!nearest) return;
+    const { id, target, distance } = nearest;
+
+    const centre = this.#flight.pointAhead(Math.max(distance, 1), this.#controls.target);
+    this.#focusId = id;
+    this.#pan.subVectors(centre, target.getPosition(position));
+    // Let the camera stay this far out (or close in) until the next fly-to sets the usual limits.
+    this.#setDistanceLimits(target);
+    this.#controls.minDistance = Math.min(this.#controls.minDistance, distance * 0.5);
+    this.#controls.maxDistance = Math.max(this.#controls.maxDistance, distance * 2);
+
+    // The controls level the camera on their next update; carry the ship's roll over instead.
+    const rolled = this.#rollScratch.copy(camera.quaternion);
+    camera.lookAt(centre);
+    const relative = rolled.premultiply(camera.quaternion.clone().invert());
+    this.#viewRoll = -2 * Math.atan2(relative.z, relative.w);
+    camera.quaternion.multiply(this.#rollStep.setFromAxisAngle(Z_AXIS, -this.#viewRoll));
+    this.#onFocusChange?.(id);
   }
 
   /**
@@ -777,9 +837,25 @@ export class SpaceScene {
     void this.#renderer.xr.getSession()?.end();
   }
 
-  /** On-screen roll buttons (touch devices). */
+  /**
+   * Hold-to-roll: the on-screen roll buttons while flying (touch devices), and in explore mode
+   * the roll buttons and Q / E, which tilt the view about its line of sight.
+   */
   setRoll(direction: -1 | 1, on: boolean): void {
-    this.#flight.setRoll(direction, on);
+    if (this.#flight.active) {
+      this.#flight.setRoll(direction, on);
+    } else if (on && this.#exploring && !this.#resetting) {
+      this.#rollHeld.add(direction);
+    } else {
+      this.#rollHeld.delete(direction);
+    }
+  }
+
+  /** Level the explore view at once (leaving explore mode, starting a flight). */
+  #clearViewRoll(): void {
+    this.#viewRoll = 0;
+    this.#rollHeld.clear();
+    this.#rollReturn = null;
   }
 
   /** Bodies to steer round while flying (the comet is just gas and dust). */
@@ -792,14 +868,53 @@ export class SpaceScene {
    * position, keeping its height. Lighting, shadows, the sky glow and comet tails all follow.
    */
   setSunAngle(degrees: number): void {
+    this.#sunReturn = null;
+    this.#applySunAngle(degrees);
+  }
+
+  #applySunAngle(degrees: number): void {
+    this.#sunAngle = degrees;
     this.#sunDirection.copy(SUN_DIRECTION).applyAxisAngle(Z_AXIS, degToRad(degrees));
     this.#needsRender = true;
   }
 
-  /** Fly back to the Earth and the starting viewpoint. */
+  /** Fly back to the Earth and the starting viewpoint, gliding the Sun home alongside. */
   resetView(): void {
+    if (!this.#exploring || this.#flight.active || this.#resetting) return;
+    this.#zoom = null;
+    this.#tap = null;
+    this.#flyHome();
+    // With reduced motion the "glide" finishes on the first frame.
+    const progress = this.#reducedMotion ? 1 : 0;
+    if (this.#sunAngle !== 0) this.#sunReturn = { from: this.#sunAngle, progress };
+    this.#rollHeld.clear();
+    // Level out the shorter way round.
+    const roll = MathUtils.euclideanModulo(this.#viewRoll + Math.PI, 2 * Math.PI) - Math.PI;
+    if (roll !== 0) this.#rollReturn = { from: roll, progress };
+    this.#setResetting(true);
+  }
+
+  /** Lock (or unlock) the user's camera input for the length of a reset. */
+  #setResetting(resetting: boolean): void {
+    if (resetting === this.#resetting) return;
+    this.#resetting = resetting;
+    this.#controls.enabled = !resetting && this.#exploring && !this.#flight.active;
+    this.#onResettingChange?.(resetting);
+  }
+
+  #flyHome(): void {
     this.focus(DEFAULT_BODY, new Vector3(0, -1, 0));
     this.#onFocusChange?.(DEFAULT_BODY);
+  }
+
+  /** Ease the Sun back to its default position over the same time as the camera's flight. */
+  #updateSunReturn(delta: number): void {
+    const sunReturn = this.#sunReturn;
+    if (!sunReturn) return;
+    sunReturn.progress = Math.min(1, sunReturn.progress + delta / FOCUS_SECONDS);
+    this.#applySunAngle(sunReturn.from * (1 - easeInOutCubic(sunReturn.progress)));
+    if (sunReturn.progress >= 1) this.#sunReturn = null;
+    this.#onSunAngleChange?.(this.#sunAngle);
   }
 
   /**
@@ -837,6 +952,7 @@ export class SpaceScene {
 
   /** Start zooming while a button is held: +1 in, -1 out. */
   startZoom(direction: 1 | -1): void {
+    if (this.#resetting) return;
     this.#zoom = { direction, held: 0, from: this.#zoomGoal ?? this.#cameraDistance() };
   }
 
@@ -851,6 +967,7 @@ export class SpaceScene {
 
   /** Zoom one step: +1 in, -1 out. The camera eases there rather than jumping. */
   zoomStep(direction: number): void {
+    if (this.#resetting) return;
     const from = this.#zoomGoal ?? this.#cameraDistance();
     this.#zoomGoal = this.#clampDistance(from * ZOOM_STEP ** direction);
   }
@@ -1084,7 +1201,7 @@ export class SpaceScene {
       (event) => {
         // A second finger means pinch, not tap.
         this.#tap =
-          this.#exploring && !this.#flight.active && event.isPrimary
+          this.#exploring && !this.#flight.active && !this.#resetting && event.isPrimary
             ? { id: event.pointerId, x: event.clientX, y: event.clientY, time: event.timeStamp }
             : null;
       },
@@ -1299,9 +1416,27 @@ export class SpaceScene {
 
     // Damping requires an update every frame; it emits "change" while still moving.
     controls.update(delta);
+    this.#updateViewRoll(delta);
     // Remember where panning left the orbit centre relative to the body.
     if (!this.#transition) this.#pan.subVectors(controls.target, point);
     this.#needsRender = true;
+  }
+
+  /**
+   * Turn the view while a roll button is held (or level it during a reset), then apply the
+   * roll on top of the orbit controls, which point the camera "up" again on every update.
+   */
+  #updateViewRoll(delta: number): void {
+    const rollReturn = this.#rollReturn;
+    if (rollReturn) {
+      rollReturn.progress = Math.min(1, rollReturn.progress + delta / FOCUS_SECONDS);
+      this.#viewRoll = rollReturn.from * (1 - easeInOutCubic(rollReturn.progress));
+      if (rollReturn.progress >= 1) this.#rollReturn = null;
+    } else if (this.#rollHeld.size === 1) {
+      const [direction] = this.#rollHeld;
+      this.#viewRoll += direction! * VIEW_ROLL_RATE * delta;
+    }
+    if (this.#viewRoll !== 0) this.#camera.rotateZ(-this.#viewRoll);
   }
 
   /** The body under a screen point, allowing generous slack for ones only a few pixels wide. */
@@ -1411,6 +1546,7 @@ export class SpaceScene {
   #tick(time: number): void {
     this.#stepBakes();
     this.#stepUploads();
+    this.#hd.step();
     // Clamp delta so returning to a background tab doesn't cause a big jump.
     const delta = this.#lastTime === null ? 0 : Math.min((time - this.#lastTime) / 1000, 0.1);
     this.#lastTime = time;
@@ -1475,6 +1611,9 @@ export class SpaceScene {
     } else if (this.#exploring) {
       this.#updateExploreCamera(delta);
     }
+    this.#updateSunReturn(delta);
+    if (this.#resetting && !this.#transition && !this.#sunReturn && !this.#rollReturn)
+      this.#setResetting(false);
 
     this.#updateHdBody();
     this.#trackMotion(delta);

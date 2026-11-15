@@ -604,6 +604,13 @@ main {
   font-size: 0.9rem;
 }
 
+/* Locked while a reset animates: dimmed, and no hover glow. */
+.explore-controls :is(.button:disabled, .focus-picker:disabled, .sun-control:has(:disabled)) {
+  opacity: 0.45;
+  pointer-events: none;
+  transition: opacity 150ms;
+}
+
 .explore-controls {
   position: fixed;
   inset-inline: 0;
@@ -801,7 +808,8 @@ main {
 }
 
 /* Holding these must not start text selection or the long-press menu. */
-.explore-zoom {
+.explore-zoom,
+.explore-roll {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;

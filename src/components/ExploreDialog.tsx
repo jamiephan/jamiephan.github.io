@@ -9,6 +9,7 @@ const controls: [action: string, how: string][] = [
   ["Rotate", "Drag with mouse or one finger"],
   ["Zoom", "Mouse wheel / pinch / hold − +"],
   ["Pan", "Right-click drag or drag with two fingers"],
+  ["Roll", "Hold Q / E or the roll buttons"],
   ["Fly to a planet", "Click or tap it, or pick from the list"],
 ];
 
