@@ -34,7 +34,7 @@ export function FlightControls({ onRollLeft, onRollRight, onEnd }: FlightControl
         <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>Esc</kbd> end
       </p>
       <p className="flight-controls__hint flight-controls__hint--touch">
-        Point your phone to look around · hold the screen to boost · hold the arrows to roll
+        Point your phone or drag to look around · hold the screen to boost · arrows roll
       </p>
 
       <div className="flight-controls__actions">

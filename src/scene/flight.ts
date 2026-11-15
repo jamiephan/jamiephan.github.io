@@ -18,6 +18,8 @@ const BOOST_SPEED = 65;
 /** Radians of turn per pixel of mouse movement or drag. */
 const MOUSE_SENSITIVITY = 0.0025;
 const TOUCH_SENSITIVITY = 0.005;
+/** A finger must move this far (CSS px) before it steers, so resting it to boost doesn't. */
+const DRAG_THRESHOLD = 8;
 /** Arrow keys turn, and Q / E roll, at these rates (radians per second). */
 const KEY_TURN_RATE = 1.2;
 const ROLL_RATE = 1.6;
@@ -152,7 +154,14 @@ export class FlightController {
   readonly #reference = new Quaternion();
   readonly #inverse = new Quaternion();
   /** A finger or mouse button dragging to steer (when the pointer isn't locked). */
-  #drag: { id: number; x: number; y: number; sensitivity: number } | null = null;
+  #drag: {
+    id: number;
+    x: number;
+    y: number;
+    sensitivity: number;
+    /** Touch drags wait for DRAG_THRESHOLD of movement before steering. */
+    steering: boolean;
+  } | null = null;
 
   constructor(
     camera: PerspectiveCamera,
@@ -351,8 +360,6 @@ export class FlightController {
           // Hold the screen to boost; keep tracking the finger even if it wanders off.
           canvas.setPointerCapture(event.pointerId);
           this.#touches.add(event.pointerId);
-          // The phone itself steers when it can, so a finger resting on the glass doesn't.
-          if (this.#device) return;
         }
         if (this.#drag || document.pointerLockElement === canvas) return;
         canvas.setPointerCapture(event.pointerId);
@@ -361,6 +368,7 @@ export class FlightController {
           x: event.clientX,
           y: event.clientY,
           sensitivity: event.pointerType === "mouse" ? MOUSE_SENSITIVITY : TOUCH_SENSITIVITY,
+          steering: event.pointerType === "mouse",
         };
       },
       { signal },
@@ -370,6 +378,15 @@ export class FlightController {
       (event) => {
         const drag = this.#drag;
         if (!drag || drag.id !== event.pointerId) return;
+        if (!drag.steering) {
+          // Ignore the small wobble of a finger held still to boost.
+          if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < DRAG_THRESHOLD) return;
+          // Steer from here on, so the view doesn't jump by the threshold distance.
+          drag.steering = true;
+          drag.x = event.clientX;
+          drag.y = event.clientY;
+          return;
+        }
         // Drag the view like grabbing the sky: moving right turns left, down looks up.
         this.#turn(
           -(event.clientX - drag.x) * drag.sensitivity,
