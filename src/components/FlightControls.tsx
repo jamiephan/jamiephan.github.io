@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 
 interface FlightControlsProps {
   onRollLeft: (on: boolean) => void;
@@ -81,40 +81,44 @@ export function FlightControls({
         </button>
       )}
 
-      {!hintsHidden && (
-        // The tips themselves are the button: tap or click them to tuck them away.
-        <button
-          ref={hideRef}
-          type="button"
-          className="flight-controls__hints"
-          title="Hide these tips"
-          onClick={() => toggleHints(true)}
-        >
-          <span className="flight-controls__hint flight-controls__hint--keyboard">
-            <kbd>W</kbd> <kbd>S</kbd> thrust · <kbd>A</kbd> <kbd>D</kbd> strafe · <kbd>Q</kbd>{" "}
-            <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>H</kbd>{" "}
-            hide · <kbd>Esc</kbd> end
-          </span>
-          <span className="flight-controls__hint flight-controls__hint--touch">
-            Point your phone or drag to look around · hold the screen to boost · arrows roll
-          </span>
-          {vr && (
-            <span className="flight-controls__hint">
-              In VR: left stick flies where you look · right stick turns · trigger boosts
-            </span>
-          )}
-          <span className="visually-hidden"> (hide these tips)</span>
-        </button>
-      )}
-
-      {/* The (i) sits between the roll buttons, on the same line. */}
+      {/* The tips, or the (i) that brings them back, sit between the roll buttons. */}
       <div className="flight-controls__actions">
         <HoldButton
-          className="flight-controls__touch flight-controls__roll"
+          className="button--icon flight-controls__touch flight-controls__roll"
           label="Roll left"
-          symbol="↺"
+          icon={
+            <svg className="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+          }
           onChange={onRollLeft}
         />
+        {!hintsHidden && (
+          // The tips themselves are the button: tap or click them to tuck them away.
+          <button
+            ref={hideRef}
+            type="button"
+            className="flight-controls__hints"
+            title="Hide these tips"
+            onClick={() => toggleHints(true)}
+          >
+            <span className="flight-controls__hint flight-controls__hint--keyboard">
+              <kbd>W</kbd> <kbd>S</kbd> thrust · <kbd>A</kbd> <kbd>D</kbd> strafe · <kbd>Q</kbd>{" "}
+              <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>H</kbd>{" "}
+              hide · <kbd>Esc</kbd> end
+            </span>
+            <span className="flight-controls__hint flight-controls__hint--touch">
+              Point your phone or drag to look around · hold the screen to boost · arrows roll
+            </span>
+            {vr && (
+              <span className="flight-controls__hint">
+                In VR: left stick flies where you look · right stick turns · trigger boosts
+              </span>
+            )}
+            <span className="visually-hidden"> (hide these tips)</span>
+          </button>
+        )}
         {hintsHidden && (
           <button
             ref={showRef}
@@ -132,9 +136,14 @@ export function FlightControls({
           </button>
         )}
         <HoldButton
-          className="flight-controls__touch flight-controls__roll"
+          className="button--icon flight-controls__touch flight-controls__roll"
           label="Roll right"
-          symbol="↻"
+          icon={
+            <svg className="button-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+            </svg>
+          }
           onChange={onRollRight}
         />
       </div>
@@ -145,13 +154,13 @@ export function FlightControls({
 interface HoldButtonProps {
   label: string;
   /** Shown instead of the label (which then becomes the accessible name). */
-  symbol?: string;
+  icon?: ReactNode;
   className: string;
   onChange: (on: boolean) => void;
 }
 
 /** Active only while held down, by finger, mouse, or Space / Enter. */
-function HoldButton({ label, symbol, className, onChange }: HoldButtonProps) {
+function HoldButton({ label, icon, className, onChange }: HoldButtonProps) {
   // Release on unmount (e.g. ending the flight mid-press) so the ship doesn't keep going.
   useEffect(() => () => onChange(false), [onChange]);
 
@@ -176,9 +185,9 @@ function HoldButton({ label, symbol, className, onChange }: HoldButtonProps) {
       onKeyDown={onKey(true)}
       onKeyUp={onKey(false)}
       onBlur={() => onChange(false)}
-      aria-label={symbol ? label : undefined}
+      aria-label={icon ? label : undefined}
     >
-      {symbol ? <span aria-hidden="true">{symbol}</span> : label}
+      {icon ?? label}
     </button>
   );
 }

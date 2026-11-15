@@ -3,8 +3,7 @@
  *
  * The full @fontsource bundle also declares Hebrew and Symbols faces whose unicode-ranges
  * cover emoji characters (e.g. the zero-width joiner), which made the browser download font
- * files that were never drawn. Other scripts fall back to the system font. The Math subset is kept for the ↺ ↻ roll
- * buttons, and it only downloads in flight mode.
+ * files that were never drawn. Other scripts fall back to the system font.
  *
  * The text faces use `font-display: optional`. With `swap`, the font arriving after the first
  * layout made the browser re-lay out the whole page, a 150-250 ms task on a throttled phone.
@@ -35,14 +34,4 @@
     U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
     U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
     U+A720-A7FF;
-}
-
-@font-face {
-  font-family: "Open Sans Variable";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 300 800;
-  src: url("@fontsource-variable/open-sans/files/open-sans-math-wght-normal.woff2")
-    format("woff2-variations");
-  unicode-range: U+2190, U+2192, U+2194-21AE, U+21B0-21E5;
 }

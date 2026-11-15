@@ -917,9 +917,16 @@ main {
   }
 }
 
-/* Centred between the roll buttons (or on its own, without touch). */
+/* Centred between the roll buttons (or on their own, without touch). */
+.flight-controls__hints,
 .flight-controls__info {
   margin-inline: auto;
+}
+
+/* The tips shrink and wrap to fit between the roll buttons. */
+.flight-controls__hints {
+  flex: 0 1 auto;
+  min-inline-size: 0;
 }
 
 /* Pinned to the top-right corner: "Flight mode" while exploring, "End flight" while flying. */
@@ -935,11 +942,12 @@ main {
   inset-inline-end: auto;
 }
 
-/* Touch: roll buttons in the bottom corners, under the thumbs. */
+/* Bottom row: roll buttons in the corners, under the thumbs (touch), with the tips between. */
 .flight-controls__actions {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  /* Bottom-aligned, so the roll buttons stay put when the (taller) tips come and go. */
+  align-items: flex-end;
   gap: 0.6rem;
   inline-size: 100%;
 
@@ -963,14 +971,16 @@ main {
   }
 }
 
-/* Round, icon-only roll buttons. */
-.flight-controls__roll {
+/*
+ * Icon-only roll buttons: the same size as the zoom buttons and the (i), rather than the big
+ * hold-button size. Exact sizes keep them circles whatever minimums the row sets.
+ */
+.flight-controls__actions .flight-controls__roll {
   flex: none;
-  min-inline-size: 3.5rem;
-  padding: 0;
-  font-size: 1.6rem;
-  line-height: 1;
-  border-radius: 50%;
+  inline-size: max(var(--target-size), 2.75rem);
+  min-inline-size: 0;
+  block-size: max(var(--target-size), 2.75rem);
+  min-block-size: 0;
 }
 
 /* Show the hint and buttons for the input the device has. */
@@ -983,13 +993,6 @@ main {
   .flight-controls__hint--touch,
   .flight-controls__touch {
     display: revert;
-  }
-}
-
-/* Without touch the bottom row only holds the (i), if that: drop it rather than leave a gap. */
-@media not (any-pointer: coarse) {
-  .flight-controls__actions:not(:has(.flight-controls__info)) {
-    display: none;
   }
 }
 
