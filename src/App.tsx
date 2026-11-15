@@ -53,7 +53,6 @@ export function App() {
     requestTiltPermission();
     startFlight();
   }, [startFlight]);
-  const setBoost = useCallback((on: boolean) => backgroundRef.current?.setBoost(on), []);
   const rollLeft = useCallback((on: boolean) => backgroundRef.current?.setRoll(-1, on), []);
   const rollRight = useCallback((on: boolean) => backgroundRef.current?.setRoll(1, on), []);
   // Leaving explore mode puts the Sun back (the scene does the same), so the slider starts
@@ -117,14 +116,7 @@ export function App() {
       </div>
 
       <ExploreDialog open={helpOpen} onClose={closeHelp} onStartFlight={beginFlight} />
-      {flying && (
-        <FlightControls
-          onBoost={setBoost}
-          onRollLeft={rollLeft}
-          onRollRight={rollRight}
-          onEnd={endFlight}
-        />
-      )}
+      {flying && <FlightControls onRollLeft={rollLeft} onRollRight={rollRight} onEnd={endFlight} />}
       {exploring && !helpOpen && !flying && (
         <ExploreToolbar
           focused={focused}

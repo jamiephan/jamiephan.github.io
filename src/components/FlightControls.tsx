@@ -1,7 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 
 interface FlightControlsProps {
-  onBoost: (on: boolean) => void;
   onRollLeft: (on: boolean) => void;
   onRollRight: (on: boolean) => void;
   onEnd: () => void;
@@ -9,9 +8,10 @@ interface FlightControlsProps {
 
 /**
  * Overlay while flying: a short reminder of the controls, and on touch screens hold-to-use
- * Boost and roll buttons (pointing the device steers). CSS shows whichever set applies.
+ * roll buttons (pointing the device steers, holding the screen boosts). CSS shows whichever
+ * set applies.
  */
-export function FlightControls({ onBoost, onRollLeft, onRollRight, onEnd }: FlightControlsProps) {
+export function FlightControls({ onRollLeft, onRollRight, onEnd }: FlightControlsProps) {
   const endRef = useRef<HTMLButtonElement>(null);
 
   // The page is inert while exploring; give keyboard users somewhere to land.
@@ -34,7 +34,7 @@ export function FlightControls({ onBoost, onRollLeft, onRollRight, onEnd }: Flig
         <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>Esc</kbd> end
       </p>
       <p className="flight-controls__hint flight-controls__hint--touch">
-        Point your phone to look around (or drag the sky), hold the arrows to roll
+        Point your phone to look around · hold the screen to boost · hold the arrows to roll
       </p>
 
       <div className="flight-controls__actions">
@@ -43,11 +43,6 @@ export function FlightControls({ onBoost, onRollLeft, onRollRight, onEnd }: Flig
           label="Roll left"
           symbol="↺"
           onChange={onRollLeft}
-        />
-        <HoldButton
-          className="flight-controls__touch flight-controls__boost"
-          label="Boost"
-          onChange={onBoost}
         />
         <HoldButton
           className="flight-controls__touch flight-controls__roll"

@@ -2,8 +2,8 @@ import { Euler, MathUtils, Quaternion, Vector3, type PerspectiveCamera } from "t
 
 /**
  * A very simple free-flight camera: point the nose with the mouse (or by pointing a phone),
- * thrust with W / S, strafe with A / D, roll with Q / E, and boost with Shift (or hold the
- * on-screen Boost button).
+ * thrust with W / S, strafe with A / D, roll with Q / E, and boost with Shift. On touch
+ * screens, holding a finger anywhere on the scene boosts.
  *
  * Steering is relative to the ship, like a cockpit: after rolling, "up" on the mouse still
  * pitches towards the top of the screen. There's no up or down in space, so no limits.
@@ -78,6 +78,15 @@ const FLIGHT_KEYS = new Set([
   "ShiftRight",
 ]);
 
+/**
+ * Smoothing for phone pointing, in "how much of the gap closes per second" (higher = snappier).
+ * Small wobbles (hand tremor) get the slow rate and melt away; deliberate turns larger than
+ * SMOOTH_ANGLE get the fast rate, so looking around still feels immediate.
+ */
+const SMOOTH_SLOW = 5;
+const SMOOTH_FAST = 25;
+const SMOOTH_ANGLE = MathUtils.degToRad(8);
+
 /** The device's back camera looks out of the screen's back, not its top edge: −90° about x. */
 const SCREEN_TO_CAMERA = new Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 const deviceEuler = new Euler();
@@ -126,17 +135,20 @@ export class FlightController {
 
   #active = false;
   #abort: AbortController | null = null;
-  /** On-screen buttons (touch). */
-  #boost = false;
+  /** Fingers held on the scene (touch): holding anywhere boosts. */
+  readonly #touches = new Set<number>();
+  /** On-screen roll buttons (touch). */
   #rollLeft = false;
   #rollRight = false;
   /**
    * Pointing the phone (VR-style "magic window"): the ship faces `reference × device`, where
    * `device` is the phone's latest orientation. `reference` is fixed when tracking starts so the
    * view doesn't jump, and shifts when dragging or rolling so those add on top.
+   * `device` eases towards the latest sensor reading (`#deviceTarget`) to smooth out shake.
    * Null until the device reports its orientation (never, on most desktops).
    */
   #device: Quaternion | null = null;
+  readonly #deviceTarget = new Quaternion();
   readonly #reference = new Quaternion();
   readonly #inverse = new Quaternion();
   /** A finger or mouse button dragging to steer (when the pointer isn't locked). */
@@ -174,15 +186,11 @@ export class FlightController {
     this.#abort?.abort();
     this.#abort = null;
     this.#keys.clear();
-    this.#boost = false;
+    this.#touches.clear();
     this.#rollLeft = false;
     this.#rollRight = false;
     this.#drag = null;
     if (document.pointerLockElement === this.#canvas) document.exitPointerLock();
-  }
-
-  setBoost(on: boolean): void {
-    this.#boost = on;
   }
 
   /** Hold-to-roll buttons (touch): -1 rolls left, +1 rolls right. */
@@ -199,6 +207,7 @@ export class FlightController {
   update(delta: number): void {
     if (!this.#active) return;
     const keys = this.#keys;
+    this.#followDevice(delta);
 
     // Steering: arrow keys and roll turn at a rate; mouse, drag and device pointing are direct.
     const keyYaw = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
@@ -213,9 +222,10 @@ export class FlightController {
 
     const forward = this.#direction();
     const right = this.#right.copy(X_AXIS).applyQuaternion(this.#orientation);
-    const ahead = (keys.has("KeyW") || this.#boost ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
+    const holding = this.#touches.size > 0;
+    const ahead = (keys.has("KeyW") || holding ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
     const side = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
-    const boosting = this.#boost || keys.has("ShiftLeft") || keys.has("ShiftRight");
+    const boosting = holding || keys.has("ShiftLeft") || keys.has("ShiftRight");
 
     const thrust = this.#thrust.copy(forward).multiplyScalar(ahead).addScaledVector(right, side);
     if (thrust.lengthSq() > 1) thrust.normalize();
@@ -337,6 +347,13 @@ export class FlightController {
         if (event.pointerType === "mouse" && document.pointerLockElement !== canvas) {
           this.#lockPointer();
         }
+        if (event.pointerType !== "mouse") {
+          // Hold the screen to boost; keep tracking the finger even if it wanders off.
+          canvas.setPointerCapture(event.pointerId);
+          this.#touches.add(event.pointerId);
+          // The phone itself steers when it can, so a finger resting on the glass doesn't.
+          if (this.#device) return;
+        }
         if (this.#drag || document.pointerLockElement === canvas) return;
         canvas.setPointerCapture(event.pointerId);
         this.#drag = {
@@ -364,10 +381,12 @@ export class FlightController {
       { signal },
     );
     const endDrag = (event: PointerEvent) => {
+      this.#touches.delete(event.pointerId);
       if (this.#drag?.id === event.pointerId) this.#drag = null;
     };
     canvas.addEventListener("pointerup", endDrag, { signal });
     canvas.addEventListener("pointercancel", endDrag, { signal });
+    canvas.addEventListener("lostpointercapture", endDrag, { signal });
 
     window.addEventListener("deviceorientation", (event) => this.#onDeviceOrientation(event), {
       signal,
@@ -378,17 +397,22 @@ export class FlightController {
   #onDeviceOrientation({ alpha, beta, gamma }: DeviceOrientationEvent): void {
     if (alpha === null || beta === null || gamma === null) return;
     const screenAngle = screen.orientation?.angle ?? 0;
-    const first = !this.#device;
-    const device = deviceQuaternion(
-      alpha,
-      beta,
-      gamma,
-      screenAngle,
-      this.#device ?? new Quaternion(),
-    );
-    this.#device = device;
-    // Start from wherever the ship was facing, however the phone happens to be held.
-    if (first) this.#rebase();
+    const target = deviceQuaternion(alpha, beta, gamma, screenAngle, this.#deviceTarget);
+    if (!this.#device) {
+      // Start from wherever the ship was facing, however the phone happens to be held.
+      this.#device = target.clone();
+      this.#rebase();
+    }
+    // The view itself follows in `#followDevice`, smoothed, once per frame.
+  }
+
+  /** Ease the view towards where the phone points, filtering out hand shake. */
+  #followDevice(delta: number): void {
+    const device = this.#device;
+    if (!device) return;
+    const gap = device.angleTo(this.#deviceTarget);
+    const rate = MathUtils.lerp(SMOOTH_SLOW, SMOOTH_FAST, Math.min(gap / SMOOTH_ANGLE, 1));
+    device.slerp(this.#deviceTarget, 1 - Math.exp(-rate * delta));
     this.#orientation.multiplyQuaternions(this.#reference, device);
   }
 }

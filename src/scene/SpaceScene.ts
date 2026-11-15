@@ -480,11 +480,7 @@ export class SpaceScene {
     this.#needsRender = true;
   }
 
-  /** On-screen flight buttons (touch devices). */
-  setBoost(on: boolean): void {
-    this.#flight.setBoost(on);
-  }
-
+  /** On-screen roll buttons (touch devices). */
   setRoll(direction: -1 | 1, on: boolean): void {
     this.#flight.setRoll(direction, on);
   }

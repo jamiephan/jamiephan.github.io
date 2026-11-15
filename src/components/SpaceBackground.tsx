@@ -9,7 +9,6 @@ export interface SpaceBackgroundHandle {
   stopZoom: () => void;
   zoomStep: (direction: 1 | -1) => void;
   setSunAngle: (degrees: number) => void;
-  setBoost: (on: boolean) => void;
   setRoll: (direction: -1 | 1, on: boolean) => void;
 }
 
@@ -89,7 +88,6 @@ export function SpaceBackground({ exploring, flying, onFocusChange, ref }: Space
       stopZoom: () => sceneRef.current?.stopZoom(),
       zoomStep: (direction) => sceneRef.current?.zoomStep(direction),
       setSunAngle: (degrees) => sceneRef.current?.setSunAngle(degrees),
-      setBoost: (on) => sceneRef.current?.setBoost(on),
       setRoll: (direction, on) => sceneRef.current?.setRoll(direction, on),
     }),
     [],
