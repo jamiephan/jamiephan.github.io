@@ -50,13 +50,16 @@ const COMMON = /* glsl */ `
 
   // Fraction of sunlight reaching \`p\` past an occluding sphere (xyz = centre, w = radius),
   // with a penumbra that widens with distance like a real one.
+  // How fast every penumbra widens with distance from its occluder. Far wider than the Sun's
+  // real angular size: distances here are compressed, so a true penumbra looks too hard.
+  #define PENUMBRA_SPREAD 0.045
+
   float sphereShadow(vec3 p, vec3 sunDir, vec4 sphere) {
     vec3 toCentre = sphere.xyz - p;
     float along = dot(toCentre, sunDir);
     if (along <= 0.0) return 1.0;
     float miss = length(toCentre - sunDir * along);
-    // Wider than a real penumbra: distances here are compressed, so a real one looks too hard.
-    float penumbra = 0.08 * sphere.w + along * 0.03;
+    float penumbra = 0.1 * sphere.w + along * PENUMBRA_SPREAD;
     return smoothstep(sphere.w - penumbra, sphere.w + penumbra, miss);
   }
 
@@ -521,9 +524,20 @@ export const createCloudyPlanetMaterial = (
           if (abs(denom) > 1e-4) {
             float t = dot(uRingCenter - vWorldPos, uRingNormal) / denom;
             if (t > 0.0) {
+              float width = uRingRadii.y - uRingRadii.x;
               float r = length(vWorldPos + L * t - uRingCenter);
-              float x = (r - uRingRadii.x) / (uRingRadii.y - uRingRadii.x);
-              if (x > 0.0 && x < 1.0) shadow = 1.0 - 0.9 * texture2D(uRing, vec2(x, 0.5)).a;
+              float x = (r - uRingRadii.x) / width;
+              // Penumbra: average the ring's opacity over a radial span that grows with the
+              // distance to the rings (triangle filter, weights sum to 16).
+              float blur = (0.006 * width + t * PENUMBRA_SPREAD) / width;
+              float occlusion = 0.0;
+              for (int i = -3; i <= 3; i++) {
+                float xi = x + blur * float(i) / 3.0;
+                if (xi > 0.0 && xi < 1.0) {
+                  occlusion += (4.0 - abs(float(i))) * texture2D(uRing, vec2(xi, 0.5)).a;
+                }
+              }
+              shadow = 1.0 - 0.9 * occlusion / 16.0;
             }
           }
         #endif

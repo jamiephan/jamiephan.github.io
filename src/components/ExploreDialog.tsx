@@ -10,10 +10,6 @@ const controls: [action: string, how: string][] = [
   ["Zoom", "Mouse wheel / pinch / hold − +"],
   ["Pan", "Right-click drag or drag with two fingers"],
   ["Fly to a planet", "Click or tap it, or pick from the list"],
-  ["Move the Sun", "Drag the Sun position slider"],
-  ["Fly a spaceship", "Flight mode button, top right"],
-  ["Reset view", "R / Reset button"],
-  ["Return to the page", "Esc"],
 ];
 
 export function ExploreDialog({ open, onClose }: ExploreDialogProps) {
