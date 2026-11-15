@@ -14,7 +14,7 @@ import { Euler, MathUtils, Quaternion, Vector3, type PerspectiveCamera } from "t
 const DRAG = 0.8;
 /** Top speeds in units per second (the Earth is 8 units across). */
 const CRUISE_SPEED = 20;
-const BOOST_SPEED = 65;
+const BOOST_SPEED = 80;
 /** Radians of turn per pixel of mouse movement or drag. */
 const MOUSE_SENSITIVITY = 0.0025;
 const TOUCH_SENSITIVITY = 0.005;
