@@ -1,9 +1,12 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, type KeyboardEvent } from "react";
 
 interface FlightControlsProps {
   onRollLeft: (on: boolean) => void;
   onRollRight: (on: boolean) => void;
   onEnd: () => void;
+  /** Whether the control hints are tucked away behind the (i) button. */
+  hintsHidden: boolean;
+  onHintsHiddenChange: (hidden: boolean) => void;
   /** VR controls, where a headset is available. */
   vr: { active: boolean; enter: () => void; exit: () => void } | null;
 }
@@ -11,13 +14,52 @@ interface FlightControlsProps {
 /**
  * Overlay while flying: a short reminder of the controls, and on touch screens hold-to-use
  * roll buttons (pointing the device steers, holding the screen boosts). CSS shows whichever
- * set applies.
+ * set applies. The reminder can be tucked away behind an (i) button, or toggled with H.
  */
-export function FlightControls({ onRollLeft, onRollRight, onEnd, vr }: FlightControlsProps) {
+export function FlightControls({
+  onRollLeft,
+  onRollRight,
+  onEnd,
+  hintsHidden,
+  onHintsHiddenChange,
+  vr,
+}: FlightControlsProps) {
   const endRef = useRef<HTMLButtonElement>(null);
+  const hideRef = useRef<HTMLButtonElement>(null);
+  const showRef = useRef<HTMLButtonElement>(null);
+  const hintsId = useId();
+  /** Set when the focused toggle button is about to be swapped out (not on mount). */
+  const moveFocus = useRef(false);
 
   // The page is inert while exploring; give keyboard users somewhere to land.
   useEffect(() => endRef.current?.focus(), []);
+
+  // The button that was clicked disappears; put focus on the one that replaced it.
+  useEffect(() => {
+    if (!moveFocus.current) return;
+    moveFocus.current = false;
+    (hintsHidden ? showRef : hideRef).current?.focus();
+  }, [hintsHidden]);
+
+  // H toggles the hints, for when the mouse is captured and can't click the buttons.
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.code !== "KeyH" || event.repeat || event.ctrlKey || event.metaKey || event.altKey)
+        return;
+      event.preventDefault();
+      // If the button being swapped out has focus, hand it on rather than drop it.
+      const focused = document.activeElement;
+      moveFocus.current = focused === hideRef.current || focused === showRef.current;
+      onHintsHiddenChange(!hintsHidden);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [hintsHidden, onHintsHiddenChange]);
+
+  const toggleHints = (hidden: boolean) => {
+    moveFocus.current = true;
+    onHintsHiddenChange(hidden);
+  };
 
   return (
     <div className="flight-controls">
@@ -40,17 +82,52 @@ export function FlightControls({ onRollLeft, onRollRight, onEnd, vr }: FlightCon
         </button>
       )}
 
-      <p className="flight-controls__hint flight-controls__hint--keyboard">
-        <kbd>W</kbd> <kbd>S</kbd> thrust · <kbd>A</kbd> <kbd>D</kbd> strafe · <kbd>Q</kbd>{" "}
-        <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>Esc</kbd> end
-      </p>
-      <p className="flight-controls__hint flight-controls__hint--touch">
-        Point your phone or drag to look around · hold the screen to boost · arrows roll
-      </p>
-      {vr && (
-        <p className="flight-controls__hint">
-          In VR: left stick flies where you look · right stick turns · trigger boosts
-        </p>
+      {hintsHidden ? (
+        <button
+          ref={showRef}
+          type="button"
+          className="button button--icon"
+          aria-label="Show flight controls"
+          aria-expanded="false"
+          onClick={() => toggleHints(false)}
+        >
+          <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.5" />
+            <path d="M8 7.25v4" />
+            <circle className="button-icon__dot" cx="8" cy="4.75" r="0.4" />
+          </svg>
+        </button>
+      ) : (
+        <div className="flight-controls__help">
+          <div id={hintsId} className="flight-controls__hints">
+            <p className="flight-controls__hint flight-controls__hint--keyboard">
+              <kbd>W</kbd> <kbd>S</kbd> thrust · <kbd>A</kbd> <kbd>D</kbd> strafe · <kbd>Q</kbd>{" "}
+              <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>H</kbd>{" "}
+              hide · <kbd>Esc</kbd> end
+            </p>
+            <p className="flight-controls__hint flight-controls__hint--touch">
+              Point your phone or drag to look around · hold the screen to boost · arrows roll
+            </p>
+            {vr && (
+              <p className="flight-controls__hint">
+                In VR: left stick flies where you look · right stick turns · trigger boosts
+              </p>
+            )}
+          </div>
+          <button
+            ref={hideRef}
+            type="button"
+            className="button button--icon"
+            aria-label="Hide flight controls"
+            aria-expanded="true"
+            aria-controls={hintsId}
+            onClick={() => toggleHints(true)}
+          >
+            <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+            </svg>
+          </button>
+        </div>
       )}
 
       <div className="flight-controls__actions">

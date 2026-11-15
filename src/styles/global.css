@@ -749,7 +749,8 @@ main {
   -webkit-touch-callout: none;
 }
 
-.explore-zoom__icon {
+/* A drawn icon inside a button: centred exactly, whatever the font's metrics. */
+.button-icon {
   display: block;
   inline-size: 1em;
   block-size: 1em;
@@ -758,6 +759,10 @@ main {
   stroke: currentColor;
   stroke-width: 1.75;
   stroke-linecap: round;
+}
+
+.button-icon__dot {
+  fill: currentColor;
 }
 
 .explore-dialog {
@@ -887,6 +892,21 @@ main {
   background: rgb(7 9 26 / 0.6);
   border: 1px solid var(--color-panel-border);
   border-radius: 999px;
+}
+
+/* The hints, with a button beside them that tucks them away behind an (i). */
+.flight-controls__help {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-inline-size: 100%;
+}
+
+.flight-controls__hints {
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+  min-inline-size: 0;
 }
 
 /* Pinned to the top-right corner: "Flight mode" while exploring, "End flight" while flying. */

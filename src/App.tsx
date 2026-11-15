@@ -56,6 +56,8 @@ export function App() {
   }, [startFlight]);
   const vrSupported = useVRSupported();
   const [inVR, setInVR] = useState(false);
+  // Remembered between flights, so hiding the hints once is enough for the visit.
+  const [flightHintsHidden, setFlightHintsHidden] = useState(false);
   const enterVR = useCallback(() => backgroundRef.current?.enterVR(), []);
   const exitVR = useCallback(() => backgroundRef.current?.exitVR(), []);
   const rollLeft = useCallback((on: boolean) => backgroundRef.current?.setRoll(-1, on), []);
@@ -126,6 +128,8 @@ export function App() {
           onRollLeft={rollLeft}
           onRollRight={rollRight}
           onEnd={endFlight}
+          hintsHidden={flightHintsHidden}
+          onHintsHiddenChange={setFlightHintsHidden}
           vr={vrSupported ? { active: inVR, enter: enterVR, exit: exitVR } : null}
         />
       )}

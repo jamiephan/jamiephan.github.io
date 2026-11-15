@@ -149,7 +149,7 @@ function ZoomButton({ zoom, direction, label }: ZoomButtonProps) {
       onClick={(event) => event.detail === 0 && zoom.step(direction)}
     >
       {/* Drawn rather than typed: text glyphs sit wherever the font's metrics put them. */}
-      <svg className="explore-zoom__icon" viewBox="0 0 16 16" aria-hidden="true">
+      <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
         <path d={direction === 1 ? "M3 8h10M8 3v10" : "M3 8h10"} />
       </svg>
     </button>
