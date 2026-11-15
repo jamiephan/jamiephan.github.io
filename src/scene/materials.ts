@@ -415,14 +415,17 @@ export const createRockyMaterial = (
         vec3 albedo = texture2D(uMap, vUv).rgb;
 
         // Bump from the albedo's luminance gradient: craters and ridges catch the light.
-        // Measured over 1.5 texels, so it stays right when a preview is swapped out, but never
-        // less than 1.5 texels of a 2K map: finer, an HD map's tiny steps would flatten it.
-        vec2 texel = max(1.0 / vec2(textureSize(uMap, 0)), 1.0 / vec2(2048.0, 1024.0));
-        vec2 dx = vec2(texel.x * 1.5, 0.0);
-        vec2 dy = vec2(0.0, texel.y * 1.5);
+        // Measured over 1.5 texels of whichever map is loaded (preview, full or HD). Sampling
+        // further apart would light every sharp edge twice, once each side: a ghosted double.
+        vec2 size = vec2(textureSize(uMap, 0));
+        vec2 dx = vec2(1.5 / size.x, 0.0);
+        vec2 dy = vec2(0.0, 1.5 / size.y);
         float gx = lum(texture2D(uMap, vUv + dx).rgb) - lum(texture2D(uMap, vUv - dx).rgb);
         float gy = lum(texture2D(uMap, vUv + dy).rgb) - lum(texture2D(uMap, vUv - dy).rgb);
-        vec3 tangentNormal = normalize(vec3(-gx * uBump, -gy * uBump, 1.0));
+        // Finer texels see smaller steps, so an HD map would look flatter than the 2K one; boost
+        // it part of the way back (fully would also boost its fine noise as much).
+        float bump = uBump * sqrt(max(size.x / 2048.0, 1.0));
+        vec3 tangentNormal = normalize(vec3(-gx * bump, -gy * bump, 1.0));
         vec3 N = normalize(mat3(modelMatrix) * perturbSphereNormal(normalize(vObjNormal), tangentNormal));
         vec3 geoN = normalize(vWorldNormal);
         vec3 V = normalize(cameraPosition - vWorldPos);

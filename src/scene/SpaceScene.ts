@@ -356,6 +356,11 @@ export class SpaceScene {
   #lastRenderTime = -Infinity;
   #needsRender = true;
   #ready = false;
+  /**
+   * Images waiting to go to the GPU once the scene is showing: one per frame, since uploading
+   * a whole set at once (entering explore mode) stalled a frame for ~350 ms.
+   */
+  readonly #uploads: { texture: Texture; image: ImageBitmap }[] = [];
   #focused = document.hasFocus();
   #perf = { time: 0, frames: 0 };
 
@@ -639,6 +644,24 @@ export class SpaceScene {
       image.close();
       return;
     }
+    // Before the first frame everything goes up at once (that frame is drawn hidden anyway).
+    if (this.#ready) {
+      this.#uploads.push({ texture, image });
+      return;
+    }
+    this.#applyImage(texture, image);
+  }
+
+  /** Upload the next queued image, if any; called once a frame. */
+  #stepUploads(): void {
+    const next = this.#uploads.shift();
+    if (!next) return;
+    this.#applyImage(next.texture, next.image);
+    // Upload it now, so its cost lands in this frame rather than piling onto a later one.
+    this.#renderer.initTexture(next.texture);
+  }
+
+  #applyImage(texture: Texture, image: ImageBitmap): void {
     // Textures with an HD version keep their usual image aside while the HD one shows.
     if (this.#hd.setBase(texture, image)) return;
     const previous = texture.image;
@@ -854,6 +877,7 @@ export class SpaceScene {
       if (texture.image instanceof ImageBitmap) texture.image.close();
     }
     this.#hd.dispose();
+    for (const { image } of this.#uploads) image.close();
     this.#nebula.dispose();
     this.#nebulaClouds.dispose();
     this.#post.dispose();
@@ -1386,6 +1410,7 @@ export class SpaceScene {
 
   #tick(time: number): void {
     this.#stepBakes();
+    this.#stepUploads();
     // Clamp delta so returning to a background tab doesn't cause a big jump.
     const delta = this.#lastTime === null ? 0 : Math.min((time - this.#lastTime) / 1000, 0.1);
     this.#lastTime = time;
