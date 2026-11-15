@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent } from "react";
 
 interface FlightControlsProps {
   onRollLeft: (on: boolean) => void;
@@ -14,7 +14,7 @@ interface FlightControlsProps {
 /**
  * Overlay while flying: a short reminder of the controls, and on touch screens hold-to-use
  * roll buttons (pointing the device steers, holding the screen boosts). CSS shows whichever
- * set applies. The reminder can be tucked away behind an (i) button, or toggled with H.
+ * set applies. Clicking the reminder tucks it away behind an (i) button; H toggles it too.
  */
 export function FlightControls({
   onRollLeft,
@@ -27,7 +27,6 @@ export function FlightControls({
   const endRef = useRef<HTMLButtonElement>(null);
   const hideRef = useRef<HTMLButtonElement>(null);
   const showRef = useRef<HTMLButtonElement>(null);
-  const hintsId = useId();
   /** Set when the focused toggle button is about to be swapped out (not on mount). */
   const moveFocus = useRef(false);
 
@@ -82,54 +81,33 @@ export function FlightControls({
         </button>
       )}
 
-      {hintsHidden ? (
+      {!hintsHidden && (
+        // The tips themselves are the button: tap or click them to tuck them away.
         <button
-          ref={showRef}
+          ref={hideRef}
           type="button"
-          className="button button--icon"
-          aria-label="Show flight controls"
-          aria-expanded="false"
-          onClick={() => toggleHints(false)}
+          className="flight-controls__hints"
+          title="Hide these tips"
+          onClick={() => toggleHints(true)}
         >
-          <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
-            <circle cx="8" cy="8" r="6.5" />
-            <path d="M8 7.25v4" />
-            <circle className="button-icon__dot" cx="8" cy="4.75" r="0.4" />
-          </svg>
+          <span className="flight-controls__hint flight-controls__hint--keyboard">
+            <kbd>W</kbd> <kbd>S</kbd> thrust · <kbd>A</kbd> <kbd>D</kbd> strafe · <kbd>Q</kbd>{" "}
+            <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>H</kbd>{" "}
+            hide · <kbd>Esc</kbd> end
+          </span>
+          <span className="flight-controls__hint flight-controls__hint--touch">
+            Point your phone or drag to look around · hold the screen to boost · arrows roll
+          </span>
+          {vr && (
+            <span className="flight-controls__hint">
+              In VR: left stick flies where you look · right stick turns · trigger boosts
+            </span>
+          )}
+          <span className="visually-hidden"> (hide these tips)</span>
         </button>
-      ) : (
-        <div className="flight-controls__help">
-          <div id={hintsId} className="flight-controls__hints">
-            <p className="flight-controls__hint flight-controls__hint--keyboard">
-              <kbd>W</kbd> <kbd>S</kbd> thrust · <kbd>A</kbd> <kbd>D</kbd> strafe · <kbd>Q</kbd>{" "}
-              <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>H</kbd>{" "}
-              hide · <kbd>Esc</kbd> end
-            </p>
-            <p className="flight-controls__hint flight-controls__hint--touch">
-              Point your phone or drag to look around · hold the screen to boost · arrows roll
-            </p>
-            {vr && (
-              <p className="flight-controls__hint">
-                In VR: left stick flies where you look · right stick turns · trigger boosts
-              </p>
-            )}
-          </div>
-          <button
-            ref={hideRef}
-            type="button"
-            className="button button--icon"
-            aria-label="Hide flight controls"
-            aria-expanded="true"
-            aria-controls={hintsId}
-            onClick={() => toggleHints(true)}
-          >
-            <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-            </svg>
-          </button>
-        </div>
       )}
 
+      {/* The (i) sits between the roll buttons, on the same line. */}
       <div className="flight-controls__actions">
         <HoldButton
           className="flight-controls__touch flight-controls__roll"
@@ -137,6 +115,22 @@ export function FlightControls({
           symbol="↺"
           onChange={onRollLeft}
         />
+        {hintsHidden && (
+          <button
+            ref={showRef}
+            type="button"
+            className="button button--icon flight-controls__info"
+            aria-label="Show flight controls"
+            aria-expanded="false"
+            onClick={() => toggleHints(false)}
+          >
+            <svg className="button-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.5" />
+              <path d="M8 7.25v4" />
+              <circle className="button-icon__dot" cx="8" cy="4.75" r="0.4" />
+            </svg>
+          </button>
+        )}
         <HoldButton
           className="flight-controls__touch flight-controls__roll"
           label="Roll right"

@@ -894,19 +894,32 @@ main {
   border-radius: 999px;
 }
 
-/* The hints, with a button beside them that tucks them away behind an (i). */
-.flight-controls__help {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  max-inline-size: 100%;
-}
-
+/* The tips are one button: clicking anywhere on them tucks them away behind the (i). */
 .flight-controls__hints {
   display: grid;
   justify-items: center;
   gap: 0.4rem;
-  min-inline-size: 0;
+  max-inline-size: 100%;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  background: none;
+  border: 0;
+  border-radius: 1rem;
+  cursor: pointer;
+
+  & .flight-controls__hint {
+    transition: border-color 150ms;
+  }
+
+  &:hover .flight-controls__hint {
+    border-color: rgb(127 249 255 / 0.6);
+  }
+}
+
+/* Centred between the roll buttons (or on its own, without touch). */
+.flight-controls__info {
+  margin-inline: auto;
 }
 
 /* Pinned to the top-right corner: "Flight mode" while exploring, "End flight" while flying. */
@@ -926,6 +939,7 @@ main {
 .flight-controls__actions {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 0.6rem;
   inline-size: 100%;
 
@@ -972,9 +986,9 @@ main {
   }
 }
 
-/* Without touch the bottom row is empty: drop it rather than leave a gap. */
+/* Without touch the bottom row only holds the (i), if that: drop it rather than leave a gap. */
 @media not (any-pointer: coarse) {
-  .flight-controls__actions {
+  .flight-controls__actions:not(:has(.flight-controls__info)) {
     display: none;
   }
 }
