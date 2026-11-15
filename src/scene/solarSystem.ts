@@ -1,10 +1,8 @@
 /**
  * Everything beyond the Earth–Moon system: the other planets, an asteroid belt and a comet.
  *
- * Sizes keep their real ratios within two groups — the rocky planets share the Earth's scale,
- * the giants a smaller one (otherwise Jupiter would be 11 Earths wide and swamp the view).
- * Distances are heavily compressed so a few bodies frame the Earth in the default view and
- * the rest are waiting to be found in explore mode.
+ * Sizes keep their real ratios (Jupiter is 11 Earths wide). Distances are heavily compressed,
+ * but the order from the Sun is real; see `layout.ts` for where everything sits.
  */
 import {
   BufferAttribute,
@@ -15,6 +13,7 @@ import {
   IcosahedronGeometry,
   InstancedMesh,
   MathUtils,
+  Matrix4,
   Mesh,
   Object3D,
   PlaneGeometry,
@@ -49,59 +48,58 @@ import {
   type LightingUniforms,
 } from "./materials.ts";
 import type { BodyId } from "./bodies.ts";
+import {
+  BELT_LAYOUT,
+  ECLIPTIC_NORMAL,
+  EARTH_RADIUS,
+  PLANET_POSITIONS,
+  SUN_DIRECTION,
+  spinAxis,
+  type PlanetId,
+} from "./layout.ts";
 import { degToRad } from "./math.ts";
 import { meanAnomalyAt, orbitAt, periodForHiddenTime, visibleFraction } from "./orbit.ts";
 import { mulberry32 } from "./stars.ts";
 
 export type TextureLoad = (url: string, options?: { color?: boolean; sharp?: boolean }) => Texture;
 
-/** World units per Earth radius for rocky planets, and per Earth radius for the giants. */
-const ROCKY_SCALE = 4;
-const GIANT_SCALE = 1.69;
-
 const Y_AXIS = new Vector3(0, 1, 0);
 const scratch = new Vector3();
 
 interface PlanetSpec {
-  id: BodyId;
+  id: PlanetId;
   url: string;
   /** Radius in Earth radii. */
   radius: number;
-  scale: number;
-  position: Vector3;
-  /** Spin axis (world space). */
-  pole: Vector3;
-  /** Spin in degrees per second; negative = retrograde. */
+  /** Spin axis: obliquity (degrees from the ecliptic normal) and which way it leans. */
+  pole: { obliquity: number; azimuth: number };
+  /** Spin in degrees per second, about the pole. */
   spin: number;
   /** Polar radius / equatorial radius. */
   oblateness?: number;
   surface: "rocky" | "cloudy";
-  /** Texture size, for bump mapping rocky surfaces. */
   rim?: Color;
   limbDarkening?: number;
   rings?: { url: string; inner: number; outer: number };
 }
 
+/** Real radii and axial tilts; positions are in `layout.ts`. */
 const PLANETS: readonly PlanetSpec[] = [
   {
-    // Close to the Sun, so it only shows up when you look towards it in explore mode.
     id: "mercury",
     url: mercuryUrl,
     radius: 0.383,
-    scale: ROCKY_SCALE,
-    position: new Vector3(260, -90, 70),
-    pole: new Vector3(0, 0, 1),
+    pole: { obliquity: 0, azimuth: 0 },
     spin: 0.5,
     surface: "rocky",
   },
   {
+    // Upside down (tilt 177°), so it turns backwards.
     id: "venus",
     url: venusUrl,
     radius: 0.949,
-    scale: ROCKY_SCALE,
-    position: new Vector3(150, -45, 35),
-    pole: new Vector3(0.05, 0, -1).normalize(),
-    spin: -0.6,
+    pole: { obliquity: 177, azimuth: 0 },
+    spin: 0.6,
     surface: "cloudy",
     rim: new Color(0.35, 0.3, 0.18),
     limbDarkening: 0.15,
@@ -110,9 +108,7 @@ const PLANETS: readonly PlanetSpec[] = [
     id: "mars",
     url: marsUrl,
     radius: 0.532,
-    scale: ROCKY_SCALE,
-    position: new Vector3(75, 165, -38),
-    pole: new Vector3(0.3, 0.1, 1).normalize(),
+    pole: { obliquity: 25, azimuth: 40 },
     spin: 3,
     surface: "rocky",
     rim: new Color(0.12, 0.07, 0.05),
@@ -121,9 +117,7 @@ const PLANETS: readonly PlanetSpec[] = [
     id: "jupiter",
     url: jupiterUrl,
     radius: 11.21,
-    scale: GIANT_SCALE,
-    position: new Vector3(300, 470, -170),
-    pole: new Vector3(0.05, -0.05, 1).normalize(),
+    pole: { obliquity: 3, azimuth: 0 },
     spin: 6,
     oblateness: 0.935,
     surface: "cloudy",
@@ -133,10 +127,8 @@ const PLANETS: readonly PlanetSpec[] = [
     id: "saturn",
     url: saturnUrl,
     radius: 9.45,
-    scale: GIANT_SCALE,
-    position: new Vector3(200, 330, 100),
-    // Rings open ~22° towards the default camera.
-    pole: new Vector3(0.3, -0.6, 1).normalize(),
+    // Leaning so the rings open ~22° towards the default camera.
+    pole: { obliquity: 26.7, azimuth: 90 },
     spin: 5,
     oblateness: 0.9,
     surface: "cloudy",
@@ -148,10 +140,8 @@ const PLANETS: readonly PlanetSpec[] = [
     id: "uranus",
     url: uranusUrl,
     radius: 4.01,
-    scale: GIANT_SCALE,
-    position: new Vector3(-320, -160, 140),
-    pole: new Vector3(1, 0.2, -0.15).normalize(),
-    spin: -4,
+    pole: { obliquity: 98, azimuth: 60 },
+    spin: 4,
     surface: "cloudy",
     rim: new Color(0.1, 0.2, 0.22),
     limbDarkening: 0.2,
@@ -160,9 +150,7 @@ const PLANETS: readonly PlanetSpec[] = [
     id: "neptune",
     url: neptuneUrl,
     radius: 3.88,
-    scale: GIANT_SCALE,
-    position: new Vector3(-260, 120, -330),
-    pole: new Vector3(-0.3, 0.2, 1).normalize(),
+    pole: { obliquity: 28, azimuth: 200 },
     spin: 4,
     surface: "cloudy",
     rim: new Color(0.06, 0.12, 0.3),
@@ -173,14 +161,10 @@ const PLANETS: readonly PlanetSpec[] = [
 /* ---------- Asteroid belt ---------- */
 
 const BELT = {
-  count: 4000,
-  innerRadius: 200,
-  outerRadius: 265,
-  thickness: 6,
-  // Tilted so the band crosses the lower part of the default view, clear of the page heading.
-  normal: new Vector3(0.1, 0.55, 1).normalize(),
-  /** Degrees per second (the whole belt slowly revolves). */
-  speed: 0.25,
+  ...BELT_LAYOUT,
+  count: 7000,
+  /** Units per second the rocks drift along the band (they're orbiting the Sun). */
+  speed: 1.5,
 } as const;
 
 /* ---------- Comet ---------- */
@@ -225,11 +209,11 @@ export interface SolarSystem {
   /** Advance animation by `seconds` (0 when reduced motion is on). */
   update: (seconds: number) => void;
   /**
-   * Turn the planets and belt with the sky (`backdrop`: drift and mouse parallax) so they stay
-   * fixed against the stars, and the comet's orbit by `cometFrame` (mouse parallax only, so it
-   * keeps coming back into view). Also re-aims world-space uniforms used for shading.
+   * Turn the planets and belt by `frame` (mouse parallax only: drifting with the sky would carry
+   * them round the Earth and out of order from the Sun), and the comet's orbit by `cometFrame`
+   * (so it keeps coming back into view). Also re-aims world-space uniforms used for shading.
    */
-  setOrientation: (backdrop: Quaternion, cometFrame: Quaternion) => void;
+  setOrientation: (frame: Quaternion, cometFrame: Quaternion) => void;
   /**
    * Fit the comet's orbital period to what `camera` (in its default pose) can see, so it
    * spends `COMET.hiddenSeconds` out of view per orbit. Returns the new period in seconds.
@@ -248,10 +232,12 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
   const planetSpheres: { value: Vector4; base: Vector3 }[] = [];
 
   for (const spec of PLANETS) {
-    const radius = spec.radius * spec.scale;
+    const radius = spec.radius * EARTH_RADIUS;
+    const position = PLANET_POSITIONS[spec.id];
+    const pole = spinAxis(spec.pole.obliquity, spec.pole.azimuth);
     const system = new Group();
-    system.position.copy(spec.position);
-    system.quaternion.setFromUnitVectors(Y_AXIS, spec.pole);
+    system.position.copy(position);
+    system.quaternion.setFromUnitVectors(Y_AXIS, pole);
 
     const map = load(spec.url);
     let ringUniforms;
@@ -262,11 +248,11 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
         spec.rings.outer * radius,
       );
       rotated.push(
-        { value: ringUniforms.uRingNormal.value, base: spec.pole },
-        { value: ringUniforms.uRingCenter.value, base: spec.position },
+        { value: ringUniforms.uRingNormal.value, base: pole },
+        { value: ringUniforms.uRingCenter.value, base: position },
       );
       const sphere = { value: new Vector4(0, 0, 0, radius) };
-      planetSpheres.push({ value: sphere.value, base: spec.position });
+      planetSpheres.push({ value: sphere.value, base: position });
 
       const rings = new Mesh(
         new RingGeometry(spec.rings.inner * radius, spec.rings.outer * radius, 192, 1),
@@ -303,9 +289,10 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     });
   }
 
-  /** Drives each rock's tumble. */
+  /** Drive each rock's tumble, and the rocks' drift along the band. */
   const beltTime = { value: 0 };
-  const belt = createAsteroidBelt(lighting, beltTime);
+  const beltShift = { value: 0 };
+  const belt = createAsteroidBelt(lighting, beltTime, beltShift);
   const comet = createComet(lighting);
   group.add(belt, comet.group);
 
@@ -332,8 +319,8 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     targets,
     update: (seconds) => {
       for (const { mesh, speed } of spinners) mesh.rotation.y += degToRad(speed * seconds);
-      // The belt's local +Y is its normal; revolve it in its own plane.
-      belt.rotateY(degToRad(BELT.speed * seconds));
+      // Kept small so the float stays precise; the shader wraps it round the band anyway.
+      beltShift.value = (beltShift.value + BELT.speed * seconds) % BELT.length;
       beltTime.value += seconds;
       comet.advance(seconds);
     },
@@ -362,23 +349,25 @@ const createRockGeometry = (): BufferGeometry => {
 const createAsteroidBelt = (
   lighting: LightingUniforms,
   beltTime: { value: number },
+  beltShift: { value: number },
 ): InstancedMesh => {
   const random = mulberry32(2024);
   const belt = new InstancedMesh(
     createRockGeometry(),
-    createAsteroidMaterial(lighting, beltTime),
+    createAsteroidMaterial(lighting, beltTime, { shift: beltShift, length: BELT.length }),
     BELT.count,
   );
   const dummy = new Object3D();
   const color = new Color();
 
   for (let i = 0; i < BELT.count; i++) {
-    // Denser towards the middle of the belt; thin and slightly flared vertically.
+    // Local frame: x along the band, y the ecliptic normal, z towards the Sun. Denser towards
+    // the middle of the band; thin and slightly flared vertically.
     const t = (random() + random() + random()) / 3;
-    const r = BELT.innerRadius + (BELT.outerRadius - BELT.innerRadius) * t;
-    const angle = random() * Math.PI * 2;
+    const depth = BELT.inner + (BELT.outer - BELT.inner) * t;
+    const along = (random() - 0.5) * BELT.length;
     const height = (random() + random() - 1) * BELT.thickness;
-    dummy.position.set(r * Math.cos(angle), height, r * Math.sin(angle));
+    dummy.position.set(along, height, -depth);
 
     // Size distribution: lots of small rocks, a few big ones.
     const size = Math.min(1.8, 0.2 * (1 - random()) ** -0.45);
@@ -400,9 +389,16 @@ const createAsteroidBelt = (
     );
   }
 
-  belt.quaternion.setFromUnitVectors(Y_AXIS, BELT.normal);
+  const along = new Vector3().crossVectors(ECLIPTIC_NORMAL, SUN_DIRECTION).normalize();
+  belt.quaternion.setFromRotationMatrix(
+    new Matrix4().makeBasis(
+      along,
+      ECLIPTIC_NORMAL,
+      new Vector3().crossVectors(along, ECLIPTIC_NORMAL),
+    ),
+  );
   belt.instanceMatrix.needsUpdate = true;
-  // The belt surrounds the camera, so its bounding sphere is always in view anyway.
+  // The rocks drift in the shader, so the computed bounds would be wrong.
   belt.frustumCulled = false;
   return belt;
 };

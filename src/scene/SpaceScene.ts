@@ -62,6 +62,7 @@ import { NEBULA_RANGE, NebulaTexture } from "./nebula.ts";
 import { NebulaClouds } from "./nebulaClouds.ts";
 import { Galaxies } from "./galaxies.ts";
 import { Meteors } from "./meteors.ts";
+import { EARTH_RADIUS, SUN_DIRECTION } from "./layout.ts";
 import { PostProcessing } from "./postprocessing.ts";
 import { generateStarfield, mulberry32 } from "./stars.ts";
 
@@ -70,8 +71,7 @@ import { generateStarfield, mulberry32 } from "./stars.ts";
 const MIN_DISTANCE = 25;
 const MAX_DISTANCE = 50;
 
-/** Real size ratios; distances are compressed so everything fits in one view. */
-const EARTH_RADIUS = 4;
+/** Real size ratios (see `layout.ts`); distances are compressed. */
 const CLOUD_RADIUS = EARTH_RADIUS * 1.006;
 const ATMOSPHERE_RADIUS = EARTH_RADIUS * 1.035;
 const EARTH_AXIAL_TILT = degToRad(23.44);
@@ -79,8 +79,6 @@ const MOON_RADIUS = EARTH_RADIUS * 0.273;
 const MOON_ORBIT_RADIUS = 14;
 const MOON_ORBIT_TILT = -0.2;
 
-/** Direction towards the Sun: off-screen to the right so the Earth shows a bright gibbous face. */
-const SUN_DIRECTION = new Vector3(1, -0.35, 0.25).normalize();
 const SUN_COLOR = new Color(1, 0.96, 0.9).multiplyScalar(1.25);
 
 /** Far enough to see a nebula on the far side of the flight range from the other side. */
@@ -1301,9 +1299,11 @@ export class SpaceScene {
       }
     }
 
-    // Everything but the Earth turns together, so the Moon, planets and belt stay fixed
-    // against the stars. The comet's orbit only follows the mouse (not the drift), so it
-    // keeps coming back into view. Done before moving the camera, which may follow a body.
+    // The sky, the Moon's orbit and the far-off nebulae and galaxies drift together. The planets
+    // and belt only follow the mouse: drifting would carry them round the Earth while the Sun
+    // stays put, scrambling their order from it (and moving them under a flying ship). The
+    // comet's orbit doesn't drift either, so it keeps coming back into view. Done before moving
+    // the camera, which may follow a body.
     this.#backdrop.multiplyQuaternions(this.#parallax, this.#drift);
     this.#sky.quaternion.multiplyQuaternions(this.#backdrop, this.#skyBase);
     this.#moonFrame.quaternion.copy(this.#backdrop);
@@ -1311,7 +1311,7 @@ export class SpaceScene {
     this.#galaxies.group.quaternion.copy(this.#backdrop);
     // The comet's orbit also turns with the scroll orbit, so it stays in the camera's view.
     this.#cometFrame.multiplyQuaternions(this.#orbit, this.#parallax);
-    this.#solarSystem.setOrientation(this.#backdrop, this.#cometFrame);
+    this.#solarSystem.setOrientation(this.#parallax, this.#cometFrame);
 
     const vr = this.#renderer.xr.isPresenting;
     if (this.#flight.active) {

@@ -693,14 +693,26 @@ export const createStarMaterial = (lighting: LightingUniforms): ShaderMaterial =
  * ------------------------------------------------------------------------------------------- */
 
 /** Instanced, flat-shaded rocks lit by the Sun. Per-instance tint comes from `instanceColor`. */
+/**
+ * Asteroid belt rocks (instanced). They lie along a band (local x), drifting along it by
+ * `band.shift` and wrapping round at its ends, where they shrink away to nothing.
+ */
 export const createAsteroidMaterial = (
   lighting: LightingUniforms,
   time: { value: number },
+  band: { shift: { value: number }; length: number },
 ): ShaderMaterial =>
   new ShaderMaterial({
-    uniforms: { ...lighting, uTime: time },
+    uniforms: {
+      ...lighting,
+      uTime: time,
+      uShift: band.shift,
+      uHalfLength: { value: band.length / 2 },
+    },
     vertexShader: /* glsl */ `
       uniform float uTime;
+      uniform float uShift;
+      uniform float uHalfLength;
       varying vec3 vNormal;
       varying vec3 vTint;
 
@@ -724,14 +736,20 @@ export const createAsteroidMaterial = (
         float rate = mix(0.05, 0.7, seed.x) * (seed.y > 0.5 ? 1.0 : -1.0);
         mat3 spin = rotation(axis, uTime * rate);
 
-        mat4 model = modelMatrix * instanceMatrix;
+        // Drift along the band, wrapping round; shrink to nothing near the ends.
+        mat4 instance = instanceMatrix;
+        float along = mod(instance[3].x + uShift + uHalfLength, 2.0 * uHalfLength) - uHalfLength;
+        instance[3].x = along;
+        float fade = 1.0 - smoothstep(0.7 * uHalfLength, uHalfLength, abs(along));
+
+        mat4 model = modelMatrix * instance;
         vNormal = normalize(mat3(model) * (spin * normal));
         #ifdef USE_INSTANCING_COLOR
           vTint = instanceColor;
         #else
           vTint = vec3(0.4);
         #endif
-        gl_Position = projectionMatrix * viewMatrix * model * vec4(spin * position, 1.0);
+        gl_Position = projectionMatrix * viewMatrix * model * vec4(spin * position * fade, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
