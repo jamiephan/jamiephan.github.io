@@ -6,6 +6,7 @@ import { FlightControls } from "./components/FlightControls.tsx";
 import { SpaceBackground, type SpaceBackgroundHandle } from "./components/SpaceBackground.tsx";
 import { sections, site } from "./content.tsx";
 import { useExploreMode } from "./hooks/useExploreMode.ts";
+import { useSmoothSnap } from "./hooks/useSmoothSnap.ts";
 import { useVRSupported } from "./hooks/useVRSupported.ts";
 import { DEFAULT_BODY, type BodyId } from "./scene/bodies.ts";
 
@@ -54,6 +55,8 @@ export function App() {
     requestTiltPermission();
     startFlight();
   }, [startFlight]);
+  // Desktop wheel scrolling glides from section to section (not while the page is hidden).
+  useSmoothSnap(".hero, .section", !exploring);
   const vrSupported = useVRSupported();
   const [inVR, setInVR] = useState(false);
   // Remembered between flights, so hiding the hints once is enough for the visit.

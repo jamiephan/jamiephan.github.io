@@ -339,6 +339,43 @@ main {
   }
 }
 
+/*
+ * Desktop: each scroll settles on a whole screen (the hero, then one section at a time).
+ * Touch screens keep free scrolling, where snapping fights momentum and the mobile URL bar.
+ * A panel taller than the screen still scrolls freely within its section before snapping on.
+ */
+@media (width >= 48rem) and (hover: hover) and (pointer: fine) {
+  html {
+    scroll-snap-type: y mandatory;
+  }
+
+  /* Wheel scrolling glides with its own easing (see useSmoothSnap); snapping waits for it. */
+  html.is-gliding {
+    scroll-snap-type: none;
+    scroll-behavior: auto;
+  }
+
+  /* Middle-click autoscroll moves freely, until the next wheel scroll or key press. */
+  html.is-free-scrolling {
+    scroll-snap-type: none;
+  }
+
+  .hero,
+  .section {
+    scroll-snap-align: start;
+  }
+
+  .section {
+    /* Snap flush to the top, so each section fills the screen exactly. */
+    scroll-margin-block-start: 0;
+  }
+
+  /* The footer is shorter than a screen; snap the page bottom so it stays reachable. */
+  .footer {
+    scroll-snap-align: end;
+  }
+}
+
 @media (width >= 72rem) {
   .section[data-align="start"] {
     grid-column: 2 / 8;
