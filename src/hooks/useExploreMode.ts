@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const isEditable = (target: EventTarget | null): boolean =>
-  target instanceof HTMLElement &&
-  (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+/** Inputs that don't take typed text, so shortcuts still work while they have focus. */
+const NON_TEXT_INPUTS = new Set(["range", "radio", "checkbox", "button", "submit", "reset"]);
+
+const isEditable = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target instanceof HTMLInputElement) return !NON_TEXT_INPUTS.has(target.type);
+  return target.isContentEditable || ["TEXTAREA", "SELECT"].includes(target.tagName);
+};
 
 interface ExploreModeOptions {
   onResetView: () => void;

@@ -187,11 +187,15 @@ export class SpaceScene {
   /** The Moon as a shadow-casting sphere, shared by the Earth and cloud shaders. */
   readonly #moonOccluder = { value: new Vector4(0, 0, 0, MOON_RADIUS) };
   readonly #solarSystem: SolarSystem;
+  /** The shared sun-direction uniform value; rotating it relights every material at once. */
+  readonly #sunDirection: Vector3;
 
   readonly #scratch = new Vector3();
   /** The camera in its default (non-explore) pose, used to time the comet's orbit. */
   readonly #viewProbe = new PerspectiveCamera(60, 1, 0.5, 3000);
   readonly #focusPoint = new Vector3();
+  /** How far the user has panned the orbit centre away from the focused body. */
+  readonly #pan = new Vector3();
   readonly #offset = new Vector3();
   /** Everything the explore camera can fly to. */
   readonly #targets = new Map<BodyId, FocusTarget>();
@@ -259,6 +263,7 @@ export class SpaceScene {
     };
 
     const lighting = createLightingUniforms(SUN_DIRECTION, SUN_COLOR);
+    this.#sunDirection = lighting.uSunDir.value;
 
     /* ---------- Sky ---------- */
     const milkyWay = load(milkyWayUrl);
@@ -361,8 +366,9 @@ export class SpaceScene {
     this.#controls = new OrbitControls(this.#camera);
     this.#controls.enabled = false;
     this.#controls.enableDamping = true;
-    // The camera follows the focused body, so panning away from it would just snap back.
-    this.#controls.enablePan = false;
+    // Right-drag or two fingers pan. The pan is kept as an offset from the focused body (see
+    // `#pan`), so the camera keeps following it instead of snapping back.
+    this.#controls.screenSpacePanning = true;
     this.#setDistanceLimits(this.#targets.get(DEFAULT_BODY)!);
     this.#controls.saveState();
     this.#controls.addEventListener("change", () => (this.#needsRender = true));
@@ -429,6 +435,9 @@ export class SpaceScene {
       this.#zoom = null;
       this.#zoomGoal = null;
       this.#tap = null;
+      this.#pan.set(0, 0, 0);
+      // The page's lighting is designed around the default Sun.
+      this.setSunAngle(0);
       this.#setDistanceLimits(this.#targets.get(DEFAULT_BODY)!);
       // Leaving explore mode puts the camera back on the Earth.
       this.#onFocusChange?.(DEFAULT_BODY);
@@ -436,6 +445,15 @@ export class SpaceScene {
       this.#progress = this.#targetProgress;
       this.#applyScrollView();
     }
+    this.#needsRender = true;
+  }
+
+  /**
+   * Move the Sun round the solar system: degrees about the vertical axis from its default
+   * position, keeping its height. Lighting, shadows, the sky glow and comet tails all follow.
+   */
+  setSunAngle(degrees: number): void {
+    this.#sunDirection.copy(SUN_DIRECTION).applyAxisAngle(Z_AXIS, degToRad(degrees));
     this.#needsRender = true;
   }
 
@@ -453,6 +471,8 @@ export class SpaceScene {
     const fromDistance = this.#cameraDistance();
     this.#focusId = id;
     this.#zoomGoal = null;
+    // Flying to a body centres it again.
+    this.#pan.set(0, 0, 0);
     this.#transition = {
       from: controls.target.clone(),
       fromDistance,
@@ -560,7 +580,8 @@ export class SpaceScene {
         const moved = Math.hypot(event.clientX - tap.x, event.clientY - tap.y);
         if (moved > TAP_MAX_MOVE || event.timeStamp - tap.time > TAP_MAX_MS) return;
         const id = this.#pick(event.clientX, event.clientY);
-        if (id && id !== this.#focusId) {
+        // Tapping the focused body again re-centres it after panning.
+        if (id && (id !== this.#focusId || this.#pan.lengthSq() > 0)) {
           this.focus(id);
           this.#onFocusChange?.(id);
         }
@@ -718,9 +739,9 @@ export class SpaceScene {
         this.#setDistanceLimits(target);
       }
     } else {
-      // Keep the same viewpoint relative to the body as it moves.
-      controls.target.copy(point);
-      this.#camera.position.copy(point).add(offset);
+      // Keep the same viewpoint relative to the body (plus any pan) as it moves.
+      controls.target.copy(point).add(this.#pan);
+      this.#camera.position.copy(controls.target).add(offset);
     }
 
     // Zoom buttons move a goal distance; the camera eases towards it, so starting, stopping
@@ -742,6 +763,8 @@ export class SpaceScene {
 
     // Damping requires an update every frame; it emits "change" while still moving.
     controls.update(delta);
+    // Remember where panning left the orbit centre relative to the body.
+    if (!this.#transition) this.#pan.subVectors(controls.target, point);
     this.#needsRender = true;
   }
 

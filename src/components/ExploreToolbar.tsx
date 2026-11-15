@@ -13,6 +13,9 @@ interface ExploreToolbarProps {
   focused: BodyId;
   onFocus: (id: BodyId) => void;
   zoom: ZoomControls;
+  /** Degrees the Sun has been moved round from its default position (−180 to 180). */
+  sunAngle: number;
+  onSunAngle: (degrees: number) => void;
   onReset: () => void;
   onHelp: () => void;
   onExit: () => void;
@@ -26,6 +29,8 @@ export function ExploreToolbar({
   focused,
   onFocus,
   zoom,
+  sunAngle,
+  onSunAngle,
   onReset,
   onHelp,
   onExit,
@@ -63,6 +68,25 @@ export function ExploreToolbar({
         ))}
       </fieldset>
 
+      <label className="sun-control">
+        <span className="sun-control__label">
+          <span aria-hidden="true">☀️</span> Sun position
+        </span>
+        <input
+          type="range"
+          min={-180}
+          max={180}
+          step={1}
+          value={sunAngle}
+          aria-valuetext={describeSunAngle(sunAngle)}
+          onChange={(event) => onSunAngle(event.currentTarget.valueAsNumber)}
+        />
+        <output className="sun-control__value" aria-hidden="true">
+          {sunAngle > 0 ? "+" : ""}
+          {sunAngle}°
+        </output>
+      </label>
+
       <div className="explore-actions">
         <ZoomButton zoom={zoom} direction={-1} label="Zoom out" symbol="−" />
         <ZoomButton zoom={zoom} direction={1} label="Zoom in" symbol="+" />
@@ -79,6 +103,12 @@ export function ExploreToolbar({
     </div>
   );
 }
+
+/** Spoken value for the Sun slider, e.g. "45 degrees clockwise". */
+const describeSunAngle = (degrees: number): string =>
+  degrees === 0
+    ? "Default position"
+    : `${Math.abs(degrees)} degrees ${degrees > 0 ? "anticlockwise" : "clockwise"}`;
 
 interface ZoomButtonProps {
   zoom: ZoomControls;

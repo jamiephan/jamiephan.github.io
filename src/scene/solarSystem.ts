@@ -538,6 +538,8 @@ const createComet = (lighting: LightingUniforms): Comet => {
 
   const place = (next: Quaternion): void => {
     frame = next;
+    // The Sun can be moved while exploring, so re-aim the tails every frame.
+    antiSun.copy(sunDirection).negate();
     const { x, y, vx, vy } = orbitAt(meanAnomaly, COMET.semiMajorAxis, COMET.eccentricity);
     uniforms.uHead.value
       .copy(COMET.periapsis)

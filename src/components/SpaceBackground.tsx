@@ -8,6 +8,7 @@ export interface SpaceBackgroundHandle {
   startZoom: (direction: 1 | -1) => void;
   stopZoom: () => void;
   zoomStep: (direction: 1 | -1) => void;
+  setSunAngle: (degrees: number) => void;
 }
 
 interface SpaceBackgroundProps {
@@ -78,6 +79,7 @@ export function SpaceBackground({ exploring, onFocusChange, ref }: SpaceBackgrou
       startZoom: (direction) => sceneRef.current?.startZoom(direction),
       stopZoom: () => sceneRef.current?.stopZoom(),
       zoomStep: (direction) => sceneRef.current?.zoomStep(direction),
+      setSunAngle: (degrees) => sceneRef.current?.setSunAngle(degrees),
     }),
     [],
   );

@@ -25,10 +25,25 @@ const scrollToContent = (event: MouseEvent<HTMLAnchorElement>) => {
 
 export function App() {
   const backgroundRef = useRef<SpaceBackgroundHandle>(null);
-  const resetView = useCallback(() => backgroundRef.current?.resetView(), []);
+  const [sunAngle, setSunAngle] = useState(0);
+  const moveSun = useCallback((degrees: number) => {
+    setSunAngle(degrees);
+    backgroundRef.current?.setSunAngle(degrees);
+  }, []);
+  const resetView = useCallback(() => {
+    backgroundRef.current?.resetView();
+    moveSun(0);
+  }, [moveSun]);
   const { exploring, helpOpen, enter, exit, openHelp, closeHelp } = useExploreMode({
     onResetView: resetView,
   });
+  // Leaving explore mode puts the Sun back (the scene does the same), so the slider starts
+  // from the default next time.
+  const [wasExploring, setWasExploring] = useState(exploring);
+  if (exploring !== wasExploring) {
+    setWasExploring(exploring);
+    if (!exploring) setSunAngle(0);
+  }
   const [focused, setFocused] = useState<BodyId>(DEFAULT_BODY);
   const focus = useCallback((id: BodyId) => {
     setFocused(id);
@@ -83,6 +98,8 @@ export function App() {
           focused={focused}
           onFocus={focus}
           zoom={zoom}
+          sunAngle={sunAngle}
+          onSunAngle={moveSun}
           onReset={resetView}
           onHelp={openHelp}
           onExit={exit}

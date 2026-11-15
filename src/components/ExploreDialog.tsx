@@ -8,9 +8,10 @@ interface ExploreDialogProps {
 const controls: [action: string, how: string][] = [
   ["Rotate", "Drag with mouse or one finger"],
   ["Zoom", "Mouse wheel / pinch / hold − +"],
+  ["Pan", "Right-click drag or drag with two fingers"],
   ["Fly to a planet", "Click or tap it, or pick from the list"],
+  ["Move the Sun", "Drag the Sun position slider"],
   ["Reset view", "R / Reset button"],
-  ["Show this help", "Shift + Q"],
   ["Return to the page", "Esc"],
 ];
 

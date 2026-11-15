@@ -631,6 +631,93 @@ main {
   }
 }
 
+/* Sun position: a labelled range slider in the same pill style as the picker. */
+.sun-control {
+  --thumb-size: 1.25rem;
+  --track-height: 0.375rem;
+
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  inline-size: min(26rem, 100%);
+  min-block-size: var(--target-size);
+  padding-inline: 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: rgb(7 9 26 / 0.6);
+  border: 1px solid var(--color-panel-border);
+  border-radius: 999px;
+  box-shadow: 0 0 2rem -0.75rem rgb(100 130 255 / 0.45);
+  backdrop-filter: blur(6px);
+
+  & input {
+    flex: 1;
+    min-inline-size: 0;
+    /* The whole row height is draggable, not just the thin track. */
+    block-size: var(--target-size);
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+    /* Horizontal drags move the slider; vertical ones are left to the page. */
+    touch-action: pan-y;
+    appearance: none;
+  }
+
+  & input:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    border-radius: 999px;
+  }
+
+  /* Night → day → night: the Sun can sit anywhere round the circle. */
+  & input::-webkit-slider-runnable-track {
+    block-size: var(--track-height);
+    background: linear-gradient(90deg, var(--color-violet), #ffd27a 50%, var(--color-violet));
+    border-radius: 999px;
+  }
+
+  & input::-moz-range-track {
+    block-size: var(--track-height);
+    background: linear-gradient(90deg, var(--color-violet), #ffd27a 50%, var(--color-violet));
+    border-radius: 999px;
+  }
+
+  & input::-webkit-slider-thumb {
+    inline-size: var(--thumb-size);
+    block-size: var(--thumb-size);
+    margin-block-start: calc((var(--track-height) - var(--thumb-size)) / 2);
+    background: radial-gradient(circle at 40% 40%, #fff8e0, #ffc94d 60%, #ff9d2e);
+    border: 0;
+    border-radius: 50%;
+    box-shadow: 0 0 0.75rem rgb(255 200 90 / 0.8);
+    appearance: none;
+  }
+
+  & input::-moz-range-thumb {
+    inline-size: var(--thumb-size);
+    block-size: var(--thumb-size);
+    background: radial-gradient(circle at 40% 40%, #fff8e0, #ffc94d 60%, #ff9d2e);
+    border: 0;
+    border-radius: 50%;
+    box-shadow: 0 0 0.75rem rgb(255 200 90 / 0.8);
+  }
+}
+
+.sun-control__label {
+  flex: none;
+  white-space: nowrap;
+}
+
+.sun-control__value {
+  flex: none;
+  /* Fixed width so the slider doesn't shift as the number changes. */
+  min-inline-size: 3.5ch;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  color: var(--color-muted);
+}
+
 .explore-actions {
   display: flex;
   flex-wrap: wrap;
@@ -760,6 +847,29 @@ main {
     forced-color-adjust: none;
     color: HighlightText;
     background: Highlight;
+  }
+
+  /* Keep the custom slider visible: a solid track and a highlighted thumb. */
+  .sun-control input {
+    forced-color-adjust: none;
+  }
+
+  .sun-control input::-webkit-slider-runnable-track {
+    background: CanvasText;
+  }
+
+  .sun-control input::-moz-range-track {
+    background: CanvasText;
+  }
+
+  .sun-control input::-webkit-slider-thumb {
+    background: Highlight;
+    box-shadow: none;
+  }
+
+  .sun-control input::-moz-range-thumb {
+    background: Highlight;
+    box-shadow: none;
   }
 }
 
