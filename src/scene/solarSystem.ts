@@ -61,7 +61,11 @@ import { degToRad } from "./math.ts";
 import { meanAnomalyAt, orbitAt, periodForHiddenTime, visibleFraction } from "./orbit.ts";
 import { mulberry32 } from "./stars.ts";
 
-export type TextureLoad = (url: string, options?: { color?: boolean; sharp?: boolean }) => Texture;
+export type TextureLoad = (
+  url: string,
+  /** `wrap`: repeat in u, as a globe map does (the default). */
+  options?: { color?: boolean; sharp?: boolean; wrap?: boolean },
+) => Texture;
 
 const Y_AXIS = new Vector3(0, 1, 0);
 const scratch = new Vector3();
@@ -244,7 +248,8 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     let ringUniforms;
     if (spec.rings) {
       ringUniforms = createRingUniforms(
-        load(spec.rings.url),
+        // A radial strip: repeating would blend its outer edge into the inner one.
+        load(spec.rings.url, { wrap: false }),
         spec.rings.inner * radius,
         spec.rings.outer * radius,
       );

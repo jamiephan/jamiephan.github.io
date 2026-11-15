@@ -265,6 +265,8 @@ export class ProgressiveBake {
   readonly #rowsPerStep: number;
   readonly #camera = new OrthographicCamera();
   #quad: Mesh<PlaneGeometry, ShaderMaterial> | null = null;
+  /** Whether the quad's shader has finished compiling (see `prepare`). */
+  #compiled = false;
   #row = 0;
 
   constructor(
@@ -281,12 +283,32 @@ export class ProgressiveBake {
     return this.#row >= this.#target.height;
   }
 
-  /** Bake the next strip of rows. */
-  step(renderer: WebGLRenderer): void {
-    if (this.done) return;
-    this.#quad ??= Object.assign(new Mesh(new PlaneGeometry(2, 2), this.#createMaterial()), {
+  /**
+   * Start compiling the bake shader without waiting for it. The noise shaders are heavy (seconds
+   * to compile on some drivers), and compiling on first draw would block the page meanwhile.
+   * Safe to call every frame.
+   */
+  prepare(renderer: WebGLRenderer): void {
+    if (this.done || this.#quad) return;
+    const quad = Object.assign(new Mesh(new PlaneGeometry(2, 2), this.#createMaterial()), {
       frustumCulled: false,
     });
+    this.#quad = quad;
+    // Compile for the render target the bake draws into.
+    const previousTarget = renderer.getRenderTarget();
+    renderer.setRenderTarget(this.#target);
+    const compiled = renderer.compileAsync(quad, this.#camera);
+    renderer.setRenderTarget(previousTarget);
+    void compiled.then(() => {
+      if (this.#quad === quad) this.#compiled = true;
+    });
+  }
+
+  /** Bake the next strip of rows, once the shader is ready (otherwise does nothing yet). */
+  step(renderer: WebGLRenderer): void {
+    if (this.done) return;
+    this.prepare(renderer);
+    if (!this.#compiled || !this.#quad) return;
 
     const target = this.#target;
     const rows = Math.min(this.#rowsPerStep, target.height - this.#row);
@@ -321,5 +343,6 @@ export class ProgressiveBake {
     this.#quad.geometry.dispose();
     this.#quad.material.dispose();
     this.#quad = null;
+    this.#compiled = false;
   }
 }

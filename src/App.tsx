@@ -67,7 +67,7 @@ export function App() {
   }, [startFlight]);
   // Desktop wheel scrolling glides from section to section (not while the page is hidden).
   useSmoothSnap(".hero, .section", !exploring);
-  const vrSupported = useVRSupported();
+  const vrSupported = useVRSupported(exploring);
   const [inVR, setInVR] = useState(false);
   // Remembered between flights, so hiding the hints once is enough for the visit.
   const [flightHintsHidden, setFlightHintsHidden] = useState(false);

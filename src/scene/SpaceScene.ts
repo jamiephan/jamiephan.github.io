@@ -163,14 +163,6 @@ const Y_AXIS = new Vector3(0, 1, 0);
 const Z_AXIS = new Vector3(0, 0, 1);
 const SKY_DRIFT_AXIS = new Vector3(0.3, 0.2, 1).normalize();
 
-export const isWebGL2Available = (): boolean => {
-  try {
-    return document.createElement("canvas").getContext("webgl2") !== null;
-  } catch {
-    return false;
-  }
-};
-
 export interface SpaceSceneOptions {
   /** Called once all textures have loaded, shaders are compiled and the first frame can be shown. */
   onReady?: () => void;
@@ -178,12 +170,6 @@ export interface SpaceSceneOptions {
   onFocusChange?: (id: BodyId) => void;
   /** Called when a VR session starts or ends. */
   onVRChange?: (inVR: boolean) => void;
-  /**
-   * Whether a headset is available. Only VR draws the scene straight to the canvas's
-   * framebuffer (everything else goes through the multisampled HDR buffer), so the canvas
-   * itself is only multisampled when it is.
-   */
-  vrSupported?: boolean;
 }
 
 /** Explore mode: seconds to fly between bodies, and hold-to-zoom speed (e-folds per second). */
@@ -356,7 +342,7 @@ export class SpaceScene {
 
   constructor(
     container: HTMLElement,
-    { onReady, onFocusChange, onVRChange, vrSupported = false }: SpaceSceneOptions = {},
+    { onReady, onFocusChange, onVRChange }: SpaceSceneOptions = {},
   ) {
     this.#container = container;
     this.#onFocusChange = onFocusChange;
@@ -365,9 +351,11 @@ export class SpaceScene {
     // Renderer — cap DPR at 2; beyond that costs a lot of fill-rate for no visible gain.
     // On screen the canvas only ever receives full-screen post-processing quads, so a
     // multisampled canvas (several bytes per sample per pixel, resolved every frame) would be
-    // wasted; WebXR takes its multisampling from this flag, though.
+    // wasted. WebXR takes its multisampling from this flag, so VR goes without: knowing whether
+    // a headset is there means asking `navigator.xr`, which costs every visitor the
+    // back/forward cache. That's only done once explore mode starts (see `setExploring`).
     this.#renderer = new WebGLRenderer({
-      antialias: vrSupported,
+      antialias: false,
       powerPreference: "high-performance",
     });
     this.#renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -378,8 +366,6 @@ export class SpaceScene {
     // Seated, origin at the head: the cockpit starts exactly where the flight camera is.
     this.#renderer.xr.setReferenceSpaceType("local");
     container.append(this.#renderer.domElement);
-    this.#vrSupported = vrSupported;
-    void isVRSupported().then((supported) => (this.#vrSupported = supported));
 
     this.#camera = new PerspectiveCamera(60, 1, 0.5, CAMERA_FAR);
     this.#camera.up.set(0, 0, 1);
@@ -394,7 +380,7 @@ export class SpaceScene {
     manager.onError = (url) => console.warn(`Failed to load texture: ${url}`);
     const loader = this.#createImageLoader(manager);
     const anisotropy = Math.min(8, this.#renderer.capabilities.getMaxAnisotropy());
-    const load = (url: string, { color = true, sharp = false } = {}): Texture => {
+    const load = (url: string, { color = true, sharp = false, wrap = true } = {}): Texture => {
       // Start with the small preview if there is one; `#loadDetail` fetches the rest later.
       const preview = previewFor(url);
       const texture = new Texture();
@@ -403,6 +389,10 @@ export class SpaceScene {
       if (preview) this.#pendingDetail.push({ texture, url });
       texture.colorSpace = color ? SRGBColorSpace : NoColorSpace;
       if (sharp) texture.anisotropy = anisotropy;
+      // Globe maps wrap round in longitude. Clamping would draw a seam where u meets 0/1 (the
+      // bump lookups straddle it) and smear the edge column into streaks wherever a lookup is
+      // shifted past it (the Earth's cloud shadows, which drift with the clouds).
+      if (wrap) texture.wrapS = RepeatWrapping;
       this.#textures.push(texture);
       return texture;
     };
@@ -626,6 +616,8 @@ export class SpaceScene {
     this.#lastPointer = null;
 
     if (exploring) {
+      // Checked here rather than on load: asking `navigator.xr` rules out the back/forward cache.
+      void isVRSupported().then((supported) => (this.#vrSupported = supported));
       this.#loadDetail();
       this.#controls.connect(this.#renderer.domElement);
       this.#controls.enabled = true;
@@ -1145,7 +1137,11 @@ export class SpaceScene {
     this.#moonOccluder.value.set(moon.x, moon.y, moon.z, MOON_RADIUS);
 
     // Clouds drift relative to the ground; shift the cloud-shadow lookup to match.
-    this.#earthMaterial.uniforms.uCloudOffset!.value = -this.#clouds.rotation.y / (2 * Math.PI);
+    // Kept within 0–1 (the texture repeats), so precision doesn't drain away as it grows.
+    this.#earthMaterial.uniforms.uCloudOffset!.value = MathUtils.euclideanModulo(
+      -this.#clouds.rotation.y / (2 * Math.PI),
+      1,
+    );
   }
 
   /**
@@ -1268,7 +1264,10 @@ export class SpaceScene {
 
   /** Bake one strip of whichever nebula texture isn't finished yet. */
   #stepBakes(): void {
-    const bake = [this.#nebula.bake, this.#nebulaClouds.bake].find((b) => !b.done);
+    const bakes = [this.#nebula.bake, this.#nebulaClouds.bake];
+    // Compile every bake's shader up front, in parallel; each only starts once it's ready.
+    for (const bake of bakes) bake.prepare(this.#renderer);
+    const bake = bakes.find((b) => !b.done);
     if (!bake) {
       this.#bakesDone?.();
       this.#bakesDone = null;

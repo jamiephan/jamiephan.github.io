@@ -9,6 +9,8 @@ export default defineConfig({
     target: "baseline-widely-available",
     // three.js is lazy-loaded in its own chunk and is legitimately large.
     chunkSizeWarningLimit: 800,
+    // The source is public anyway; maps make production errors and profiles readable.
+    sourcemap: true,
   },
 
   test: {

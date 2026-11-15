@@ -1,7 +1,6 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { BodyId } from "../scene/bodies.ts";
 import type { SpaceScene } from "../scene/SpaceScene.ts";
-import { isVRSupported } from "../scene/xr.ts";
 
 export interface SpaceBackgroundHandle {
   resetView: () => void;
@@ -60,12 +59,13 @@ export function SpaceBackground({
     let disposed = false;
     let scene: SpaceScene | undefined;
 
-    // The VR check runs alongside the download: it decides whether the canvas needs MSAA.
-    Promise.all([import("../scene/SpaceScene.ts"), isVRSupported()])
-      .then(([{ SpaceScene, isWebGL2Available }, vrSupported]) => {
+    import("../scene/SpaceScene.ts")
+      .then(({ SpaceScene }) => {
         const container = containerRef.current;
         if (disposed || !container) return;
-        if (!isWebGL2Available()) {
+        // No separate WebGL2 check: creating a throwaway context costs as much as the real one.
+        // The renderer throws if it can't get one, which ends up below.
+        if (typeof WebGL2RenderingContext === "undefined") {
           setStatus("unsupported");
           return;
         }
@@ -73,7 +73,6 @@ export function SpaceBackground({
           onReady: () => !disposed && setStatus("ready"),
           onFocusChange: (id) => onFocusChangeRef.current?.(id),
           onVRChange: (inVR) => onVRChangeRef.current?.(inVR),
-          vrSupported,
         });
         scene.setExploring(exploringRef.current);
         sceneRef.current = scene;
