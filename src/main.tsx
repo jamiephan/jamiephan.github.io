@@ -1,4 +1,4 @@
-import "@fontsource-variable/open-sans";
+import "./styles/fonts.css";
 import "./styles/global.css";
 
 import { StrictMode } from "react";

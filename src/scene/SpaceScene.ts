@@ -4,6 +4,7 @@ import {
   BufferGeometry,
   Color,
   Group,
+  ImageBitmapLoader,
   LinearFilter,
   LoadingManager,
   Matrix4,
@@ -17,13 +18,12 @@ import {
   ShaderMaterial,
   SphereGeometry,
   SRGBColorSpace,
-  TextureLoader,
+  Texture,
   Vector3,
   Vector4,
   WebGLRenderer,
   type Material,
   type Object3D,
-  type Texture,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
@@ -98,6 +98,11 @@ const SCROLL_ORBIT_ELEVATION = degToRad(16);
 const TARGET_FPS = 45;
 const PERF_SAMPLE_SECONDS = 2;
 const MIN_PIXEL_RATIO = 1;
+/**
+ * Shortest gap between frames of the ambient background (~60 fps, with slack for timer
+ * jitter). On 120 Hz+ screens this halves the GPU work. Explore and flight mode run uncapped.
+ */
+const AMBIENT_FRAME_MS = 1000 / 60 - 2;
 
 const X_AXIS = new Vector3(1, 0, 0);
 const Y_AXIS = new Vector3(0, 1, 0);
@@ -226,6 +231,7 @@ export class SpaceScene {
   readonly #cometFrame = new Quaternion();
   #lastPointer: { x: number; y: number } | null = null;
   #lastTime: number | null = null;
+  #lastRenderTime = -Infinity;
   #needsRender = true;
   #ready = false;
   #perf = { time: 0, frames: 0 };
@@ -252,12 +258,14 @@ export class SpaceScene {
     const texturesLoaded = new Promise<void>((resolve) => (resolveTextures = resolve));
     const manager = new LoadingManager(resolveTextures);
     manager.onError = (url) => console.warn(`Failed to load texture: ${url}`);
-    const loader = new TextureLoader(manager);
+    const loader = this.#createImageLoader(manager);
     const anisotropy = Math.min(8, this.#renderer.capabilities.getMaxAnisotropy());
     const load = (url: string, { color = true, sharp = false } = {}): Texture => {
       // Start with the small preview if there is one; `#loadDetail` fetches the rest later.
       const preview = previewFor(url);
-      const texture = loader.load(preview ?? url, () => (this.#needsRender = true));
+      const texture = new Texture();
+      texture.flipY = false; // the loader already flips the bitmap
+      loader.load(preview ?? url, (image) => this.#setImage(texture, image));
       if (preview) this.#pendingDetail.push({ texture, url });
       texture.colorSpace = color ? SRGBColorSpace : NoColorSpace;
       if (sharp) texture.anisotropy = anisotropy;
@@ -411,16 +419,35 @@ export class SpaceScene {
    * can zoom in, so a normal visit never downloads the large files.
    */
   #loadDetail(): void {
-    const loader = new TextureLoader();
+    const loader = this.#createImageLoader();
     for (const { texture, url } of this.#pendingDetail) {
-      loader.load(url, (full) => {
-        // Re-uploads the image (and regenerates mipmaps) on the next render.
-        texture.image = full.image;
-        texture.needsUpdate = true;
-        this.#needsRender = true;
-      });
+      loader.load(url, (image) => this.#setImage(texture, image));
     }
     this.#pendingDetail = [];
+  }
+
+  /**
+   * Images are decoded to bitmaps off the main thread. Decoding an `<img>` happens during the
+   * WebGL upload instead, which blocked the page for hundreds of milliseconds on slower phones.
+   */
+  #createImageLoader(manager?: LoadingManager): ImageBitmapLoader {
+    return new ImageBitmapLoader(manager).setOptions({
+      imageOrientation: "flipY",
+      premultiplyAlpha: "none",
+    });
+  }
+
+  /** Give a texture its (new) image; it is uploaded on the next render. */
+  #setImage(texture: Texture, image: ImageBitmap): void {
+    if (this.#disposed) {
+      image.close();
+      return;
+    }
+    const previous = texture.image;
+    texture.image = image;
+    texture.needsUpdate = true;
+    if (previous instanceof ImageBitmap) previous.close();
+    this.#needsRender = true;
   }
 
   /** Toggle free-roam mode where the user drives the camera with orbit controls. */
@@ -565,7 +592,10 @@ export class SpaceScene {
         : [object.material];
       for (const material of materials) material.dispose();
     });
-    for (const texture of this.#textures) texture.dispose();
+    for (const texture of this.#textures) {
+      texture.dispose();
+      if (texture.image instanceof ImageBitmap) texture.image.close();
+    }
 
     this.#renderer.dispose();
     this.#renderer.forceContextLoss();
@@ -879,7 +909,9 @@ export class SpaceScene {
     }
 
     if (!this.#needsRender || !this.#ready) return;
+    if (!this.#exploring && time - this.#lastRenderTime < AMBIENT_FRAME_MS) return;
     this.#needsRender = false;
+    this.#lastRenderTime = time;
 
     // The sky is infinitely far away: keep it centred on the camera.
     this.#sky.position.copy(this.#camera.position);
