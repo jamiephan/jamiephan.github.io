@@ -252,7 +252,9 @@ export const createAtmosphereMaterial = (
     transparent: true,
     depthWrite: false,
     blending: AdditiveBlending,
-    defines: { PRIMARY_STEPS: 14, LIGHT_STEPS: 4 },
+    // The step count scales with the path length (see the shader): MIN_PRIMARY_STEPS for the
+    // short, steep paths over the disc, PRIMARY_STEPS for the long, grazing ones at the limb.
+    defines: { PRIMARY_STEPS: 14, MIN_PRIMARY_STEPS: 6, LIGHT_STEPS: 4 },
     vertexShader: /* glsl */ `
       varying vec3 vWorldPos;
       void main() {
@@ -289,13 +291,25 @@ export const createAtmosphereMaterial = (
         float end = ground.x > 0.0 ? min(atmo.y, ground.x) : atmo.y;
         if (end <= start) discard;
 
-        float stepSize = (end - start) / float(PRIMARY_STEPS);
+        // Most pixels look down through the thin shell over the disc: a short path that
+        // converges in a few steps (well under one display level from 14, and far below the
+        // film grain). Only the long grazing paths near the limb need the full count, so
+        // scale it by the path's share of the longest one (tangent to the ground).
+        float chord = end - start;
+        float maxChord = 2.0 * sqrt(uAtmosphereRadius * uAtmosphereRadius - 1.0);
+        int steps = int(clamp(
+          ceil(float(PRIMARY_STEPS) * chord / maxChord),
+          float(MIN_PRIMARY_STEPS),
+          float(PRIMARY_STEPS)
+        ));
+        float stepSize = chord / float(steps);
         vec3 sumR = vec3(0.0);
         vec3 sumM = vec3(0.0);
         float depthR = 0.0;
         float depthM = 0.0;
 
         for (int i = 0; i < PRIMARY_STEPS; i++) {
+          if (i >= steps) break;
           vec3 p = origin + dir * (start + stepSize * (float(i) + 0.5));
           float height = length(p) - 1.0;
           float densityR = exp(-height / H_R) * stepSize;

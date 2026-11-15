@@ -160,7 +160,7 @@ export function FlightControls({
 }
 
 /**
- * Speed in light-years per hour, with km/s and the fraction of light speed underneath. It
+ * Speed in light-seconds per second (so 1 is the speed of light), with km/s underneath. It
  * updates several times a second, so it writes to the DOM directly instead of re-rendering,
  * and isn't a live region (a screen reader would never stop reading it).
  */
@@ -171,13 +171,11 @@ function Speedometer({ subscribe }: { subscribe: SpeedSubscription }) {
   useEffect(
     () =>
       subscribe((unitsPerSecond) => {
-        const { lightYearsPerHour, kmPerSecond, ofLight } = toRealSpeed(unitsPerSecond);
-        if (valueRef.current) valueRef.current.textContent = formatScientific(lightYearsPerHour);
-        if (detailRef.current) {
-          const km = Math.round(kmPerSecond).toLocaleString();
-          const c = ofLight < 0.001 ? "< 0.001" : ofLight.toFixed(3);
-          detailRef.current.textContent = `${km} km/s · ${c} c`;
-        }
+        const { lightSecondsPerSecond, kmPerSecond } = toRealSpeed(unitsPerSecond);
+        if (valueRef.current)
+          valueRef.current.textContent = formatScientific(lightSecondsPerSecond);
+        if (detailRef.current)
+          detailRef.current.textContent = `${Math.round(kmPerSecond).toLocaleString()} km/s`;
       }),
     [subscribe],
   );
@@ -189,12 +187,12 @@ function Speedometer({ subscribe }: { subscribe: SpeedSubscription }) {
         <span ref={valueRef} className="speedometer__value">
           0
         </span>{" "}
-        <abbr className="speedometer__unit" title="light-years per hour">
-          ly/h
+        <abbr className="speedometer__unit" title="light-seconds per second">
+          ls/s
         </abbr>
       </span>
       <span ref={detailRef} className="speedometer__detail">
-        0 km/s · &lt; 0.001 c
+        0 km/s
       </span>
     </p>
   );

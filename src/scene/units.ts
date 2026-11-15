@@ -9,22 +9,18 @@
 export const EARTH_RADIUS_KM = 6371;
 export const KM_PER_UNIT = EARTH_RADIUS_KM / 4;
 export const LIGHT_SPEED_KM_S = 299_792.458;
-/** Kilometres in a light-year (Julian year). */
-export const KM_PER_LIGHT_YEAR = LIGHT_SPEED_KM_S * 365.25 * 86_400;
 
 export interface Speed {
   kmPerSecond: number;
-  lightYearsPerHour: number;
-  /** Fraction of the speed of light. */
-  ofLight: number;
+  /** Light-seconds per second, i.e. the fraction of the speed of light. */
+  lightSecondsPerSecond: number;
 }
 
 export const toRealSpeed = (unitsPerSecond: number): Speed => {
   const kmPerSecond = unitsPerSecond * KM_PER_UNIT;
   return {
     kmPerSecond,
-    lightYearsPerHour: (kmPerSecond * 3600) / KM_PER_LIGHT_YEAR,
-    ofLight: kmPerSecond / LIGHT_SPEED_KM_S,
+    lightSecondsPerSecond: kmPerSecond / LIGHT_SPEED_KM_S,
   };
 };
 

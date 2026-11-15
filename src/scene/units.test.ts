@@ -7,14 +7,13 @@ describe("toRealSpeed", () => {
     expect(KM_PER_UNIT).toBeCloseTo(1592.75);
   });
 
-  it("converts the speed of light to about 0.000114 light-years per hour", () => {
+  it("converts the speed of light to 1 light-second per second", () => {
     const c = toRealSpeed(299_792.458 / KM_PER_UNIT);
-    expect(c.ofLight).toBeCloseTo(1);
-    expect(c.lightYearsPerHour).toBeCloseTo(1 / (365.25 * 24), 9);
+    expect(c.lightSecondsPerSecond).toBeCloseTo(1, 9);
   });
 
   it("is zero at rest", () => {
-    expect(toRealSpeed(0)).toEqual({ kmPerSecond: 0, lightYearsPerHour: 0, ofLight: 0 });
+    expect(toRealSpeed(0)).toEqual({ kmPerSecond: 0, lightSecondsPerSecond: 0 });
   });
 });
 

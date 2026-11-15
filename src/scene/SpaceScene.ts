@@ -63,6 +63,7 @@ import { NebulaClouds } from "./nebulaClouds.ts";
 import { Galaxies } from "./galaxies.ts";
 import { Meteors } from "./meteors.ts";
 import { EARTH_RADIUS, SUN_DIRECTION } from "./layout.ts";
+import { scrollOrbitFor, type ScrollOrbit } from "./scrollOrbit.ts";
 import { PostProcessing } from "./postprocessing.ts";
 import { generateStarfield, mulberry32 } from "./stars.ts";
 
@@ -140,22 +141,22 @@ const PAN_THRESHOLD = 200;
 
 /** Higher = camera follows scroll faster. */
 const ZOOM_SMOOTHING = 8;
-/**
- * By the bottom of the page the camera has swung this far round the Earth (away from the Sun,
- * so the night side and city lights come into view) and risen this far above the orbital plane.
- */
-const SCROLL_ORBIT_AZIMUTH = degToRad(-75);
-const SCROLL_ORBIT_ELEVATION = degToRad(16);
 
 /** Adaptive resolution: drop the pixel ratio if we can't hold this frame rate. */
 const TARGET_FPS = 45;
 const PERF_SAMPLE_SECONDS = 2;
-const MIN_PIXEL_RATIO = 1;
+/** Below 1 the 3D background softens, but the page's text and UI (plain HTML) stay sharp. */
+const MIN_PIXEL_RATIO = 0.75;
 /**
  * Shortest gap between frames of the ambient background (~60 fps, with slack for timer
  * jitter). On 120 Hz+ screens this halves the GPU work. Explore and flight mode run uncapped.
  */
 const AMBIENT_FRAME_MS = 1000 / 60 - 2;
+/**
+ * While the page is visible but not focused (another window in front, or on another screen),
+ * nobody is interacting with it: draw ~30 fps whatever the mode. Hidden tabs draw nothing.
+ */
+const UNFOCUSED_FRAME_MS = 1000 / 30 - 2;
 
 const X_AXIS = new Vector3(1, 0, 0);
 const Y_AXIS = new Vector3(0, 1, 0);
@@ -337,6 +338,11 @@ export class SpaceScene {
   /** Swing round the Earth driven by scroll; the default camera pose is rotated by this. */
   readonly #orbit = new Quaternion();
   readonly #orbitStep = new Quaternion();
+  /**
+   * How far the camera has swung round the Earth by the bottom of the page: towards the Sun,
+   * which ends up in an upper corner (it depends on the screen's shape; see `scrollOrbit.ts`).
+   */
+  #scrollOrbit: ScrollOrbit = scrollOrbitFor(16 / 9, 60);
   /** The camera's orientation at the start of the page (looking at the Earth). */
   readonly #baseView = new Quaternion();
   readonly #cometFrame = new Quaternion();
@@ -345,6 +351,7 @@ export class SpaceScene {
   #lastRenderTime = -Infinity;
   #needsRender = true;
   #ready = false;
+  #focused = document.hasFocus();
   #perf = { time: 0, frames: 0 };
 
   constructor(
@@ -996,6 +1003,16 @@ export class SpaceScene {
       { signal },
     );
 
+    const onFocusChange = (): void => {
+      this.#focused = document.hasFocus();
+      // Frame times measured at the other rate say nothing about this one.
+      this.#perf = { time: 0, frames: 0 };
+      this.#lastRenderTime = -Infinity;
+      this.#needsRender = true;
+    };
+    window.addEventListener("focus", onFocusChange, { signal });
+    window.addEventListener("blur", onFocusChange, { signal });
+
     window.addEventListener("scroll", () => this.#updateScrollTarget(), { passive: true, signal });
     window.addEventListener("pointermove", (event) => this.#onPointerMove(event), {
       passive: true,
@@ -1055,6 +1072,8 @@ export class SpaceScene {
 
     this.#camera.aspect = width / height;
     this.#camera.updateProjectionMatrix();
+    this.#scrollOrbit = scrollOrbitFor(this.#camera.aspect, this.#camera.fov);
+    if (!this.#exploring) this.#applyScrollView();
 
     // A wider or narrower view sees more or less of the comet's orbit: re-time it.
     const probe = this.#viewProbe;
@@ -1112,8 +1131,8 @@ export class SpaceScene {
     const progress = this.#progress;
     const turn = this.#reducedMotion ? 0 : progress;
     this.#orbit
-      .setFromAxisAngle(Z_AXIS, SCROLL_ORBIT_AZIMUTH * turn)
-      .multiply(this.#orbitStep.setFromAxisAngle(X_AXIS, -SCROLL_ORBIT_ELEVATION * turn));
+      .setFromAxisAngle(Z_AXIS, this.#scrollOrbit.azimuth * turn)
+      .multiply(this.#orbitStep.setFromAxisAngle(X_AXIS, -this.#scrollOrbit.elevation * turn));
     const distance = lerp(MIN_DISTANCE, MAX_DISTANCE, progress);
     this.#camera.position.set(0, -distance, 0).applyQuaternion(this.#orbit);
     this.#camera.quaternion.multiplyQuaternions(this.#orbit, this.#baseView);
@@ -1358,7 +1377,10 @@ export class SpaceScene {
     // A headset needs a new frame every time, for every movement of the head.
     if (vr) this.#needsRender = true;
     if (!this.#needsRender || !this.#ready) return;
-    if (!this.#exploring && time - this.#lastRenderTime < AMBIENT_FRAME_MS) return;
+    // The headset sets its own pace (and the page may well lose focus while it's on).
+    const throttled = !vr && !this.#focused;
+    const minGap = throttled ? UNFOCUSED_FRAME_MS : this.#exploring ? 0 : AMBIENT_FRAME_MS;
+    if (time - this.#lastRenderTime < minGap) return;
     this.#needsRender = false;
     const interval = (time - this.#lastRenderTime) / 1000;
     this.#lastRenderTime = time;
@@ -1369,6 +1391,7 @@ export class SpaceScene {
     this.#renderFrame(time);
 
     // The headset's frame rate and resolution aren't the page's to change.
-    if (!vr && !this.#reducedMotion) this.#adaptQuality(interval);
+    // Throttled frames are slow on purpose, not because the GPU can't keep up.
+    if (!vr && !throttled && !this.#reducedMotion) this.#adaptQuality(interval);
   }
 }
