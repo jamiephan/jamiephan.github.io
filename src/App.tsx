@@ -6,6 +6,7 @@ import { FlightControls } from "./components/FlightControls.tsx";
 import { SpaceBackground, type SpaceBackgroundHandle } from "./components/SpaceBackground.tsx";
 import { sections, site } from "./content.tsx";
 import { useExploreMode } from "./hooks/useExploreMode.ts";
+import { useVRSupported } from "./hooks/useVRSupported.ts";
 import { DEFAULT_BODY, type BodyId } from "./scene/bodies.ts";
 
 const firstSection = sections[0]?.id ?? "";
@@ -53,6 +54,10 @@ export function App() {
     requestTiltPermission();
     startFlight();
   }, [startFlight]);
+  const vrSupported = useVRSupported();
+  const [inVR, setInVR] = useState(false);
+  const enterVR = useCallback(() => backgroundRef.current?.enterVR(), []);
+  const exitVR = useCallback(() => backgroundRef.current?.exitVR(), []);
   const rollLeft = useCallback((on: boolean) => backgroundRef.current?.setRoll(-1, on), []);
   const rollRight = useCallback((on: boolean) => backgroundRef.current?.setRoll(1, on), []);
   // Leaving explore mode puts the Sun back (the scene does the same), so the slider starts
@@ -83,6 +88,7 @@ export function App() {
         exploring={exploring}
         flying={flying}
         onFocusChange={setFocused}
+        onVRChange={setInVR}
       />
 
       <div className="page" inert={exploring}>
@@ -115,7 +121,14 @@ export function App() {
       </div>
 
       <ExploreDialog open={helpOpen} onClose={closeHelp} />
-      {flying && <FlightControls onRollLeft={rollLeft} onRollRight={rollRight} onEnd={endFlight} />}
+      {flying && (
+        <FlightControls
+          onRollLeft={rollLeft}
+          onRollRight={rollRight}
+          onEnd={endFlight}
+          vr={vrSupported ? { active: inVR, enter: enterVR, exit: exitVR } : null}
+        />
+      )}
       {exploring && !helpOpen && !flying && (
         <ExploreToolbar
           focused={focused}

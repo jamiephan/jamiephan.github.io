@@ -4,6 +4,8 @@ interface FlightControlsProps {
   onRollLeft: (on: boolean) => void;
   onRollRight: (on: boolean) => void;
   onEnd: () => void;
+  /** VR controls, where a headset is available. */
+  vr: { active: boolean; enter: () => void; exit: () => void } | null;
 }
 
 /**
@@ -11,7 +13,7 @@ interface FlightControlsProps {
  * roll buttons (pointing the device steers, holding the screen boosts). CSS shows whichever
  * set applies.
  */
-export function FlightControls({ onRollLeft, onRollRight, onEnd }: FlightControlsProps) {
+export function FlightControls({ onRollLeft, onRollRight, onEnd, vr }: FlightControlsProps) {
   const endRef = useRef<HTMLButtonElement>(null);
 
   // The page is inert while exploring; give keyboard users somewhere to land.
@@ -28,6 +30,15 @@ export function FlightControls({ onRollLeft, onRollRight, onEnd }: FlightControl
       >
         End flight
       </button>
+      {vr && (
+        <button
+          type="button"
+          className="button corner-button corner-button--start"
+          onClick={vr.active ? vr.exit : vr.enter}
+        >
+          {vr.active ? "Exit VR" : "Enter VR"}
+        </button>
+      )}
 
       <p className="flight-controls__hint flight-controls__hint--keyboard">
         <kbd>W</kbd> <kbd>S</kbd> thrust · <kbd>A</kbd> <kbd>D</kbd> strafe · <kbd>Q</kbd>{" "}
@@ -36,6 +47,11 @@ export function FlightControls({ onRollLeft, onRollRight, onEnd }: FlightControl
       <p className="flight-controls__hint flight-controls__hint--touch">
         Point your phone or drag to look around · hold the screen to boost · arrows roll
       </p>
+      {vr && (
+        <p className="flight-controls__hint">
+          In VR: left stick flies where you look · right stick turns · trigger boosts
+        </p>
+      )}
 
       <div className="flight-controls__actions">
         <HoldButton

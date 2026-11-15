@@ -48,6 +48,7 @@ import { DEFAULT_BODY, type BodyId } from "./bodies.ts";
 import { FlightController, type Obstacle } from "./flight.ts";
 import { createSolarSystem, type FocusTarget, type SolarSystem } from "./solarSystem.ts";
 import { previewFor } from "./textures.ts";
+import { isVRSupported, readVRInput } from "./xr.ts";
 import { generateStarfield } from "./stars.ts";
 
 /* ---------- Layout (world units; +Z is "up" on screen, the camera looks along +Y) ---------- */
@@ -122,6 +123,8 @@ export interface SpaceSceneOptions {
   onReady?: () => void;
   /** Called when the focused body changes from inside the scene (tapping a planet, resetting). */
   onFocusChange?: (id: BodyId) => void;
+  /** Called when a VR session starts or ends. */
+  onVRChange?: (inVR: boolean) => void;
 }
 
 /** Explore mode: seconds to fly between bodies, and hold-to-zoom speed (e-folds per second). */
@@ -206,6 +209,15 @@ export class SpaceScene {
   /** Everything the explore camera can fly to. */
   readonly #targets = new Map<BodyId, FocusTarget>();
   readonly #onFocusChange: ((id: BodyId) => void) | undefined;
+  readonly #onVRChange: ((inVR: boolean) => void) | undefined;
+  /**
+   * In VR the headset drives its own camera, so it rides in a rig that follows the flight
+   * camera (the "ship"); head tracking then moves it around inside.
+   */
+  readonly #vrRig = new Group();
+  readonly #vrCamera = new PerspectiveCamera(60, 1, 0.5, 3000);
+  /** Whether this browser can show immersive VR; set once the check resolves. */
+  #vrSupported = false;
 
   #focusId: BodyId = DEFAULT_BODY;
   /** The explore view when flight started, so ending the flight can return to it. */
@@ -238,16 +250,25 @@ export class SpaceScene {
   #ready = false;
   #perf = { time: 0, frames: 0 };
 
-  constructor(container: HTMLElement, { onReady, onFocusChange }: SpaceSceneOptions = {}) {
+  constructor(
+    container: HTMLElement,
+    { onReady, onFocusChange, onVRChange }: SpaceSceneOptions = {},
+  ) {
     this.#container = container;
     this.#onFocusChange = onFocusChange;
+    this.#onVRChange = onVRChange;
 
     // Renderer — cap DPR at 2; beyond that costs a lot of fill-rate for no visible gain.
     this.#renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.#renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.#renderer.toneMapping = ACESFilmicToneMapping;
     this.#renderer.toneMappingExposure = 1;
+    // Only takes over rendering while a VR session is running (see `enterVR`).
+    this.#renderer.xr.enabled = true;
+    // Seated, origin at the head: the cockpit starts exactly where the flight camera is.
+    this.#renderer.xr.setReferenceSpaceType("local");
     container.append(this.#renderer.domElement);
+    void isVRSupported().then((supported) => (this.#vrSupported = supported));
 
     this.#camera = new PerspectiveCamera(60, 1, 0.5, 3000);
     this.#camera.up.set(0, 0, 1);
@@ -361,7 +382,15 @@ export class SpaceScene {
     /* ---------- Other planets, asteroid belt, comet ---------- */
     this.#solarSystem = createSolarSystem(load, lighting);
 
-    this.#scene.add(this.#sky, earthTilt, atmosphere, this.#moonFrame, this.#solarSystem.group);
+    this.#vrRig.add(this.#vrCamera);
+    this.#scene.add(
+      this.#sky,
+      earthTilt,
+      atmosphere,
+      this.#moonFrame,
+      this.#solarSystem.group,
+      this.#vrRig,
+    );
 
     this.#targets.set("earth", {
       radius: EARTH_RADIUS,
@@ -463,6 +492,7 @@ export class SpaceScene {
       this.#controls.connect(this.#renderer.domElement);
       this.#controls.enabled = true;
     } else {
+      this.exitVR();
       this.#flight.stop();
       this.#preFlightView = null;
       this.#controls.enabled = false;
@@ -507,8 +537,10 @@ export class SpaceScene {
           .clone(),
         distance: this.#cameraDistance(),
       };
-      this.#flight.start();
+      // Leave the mouse free where VR is available, so "Enter VR" can be clicked.
+      this.#flight.start({ lockPointer: !this.#vrSupported });
     } else {
+      this.exitVR();
       this.#flight.stop();
       // Orbit round a point just ahead, so the hand-over doesn't jump, then fly back.
       this.#flight.pointAhead(10, this.#controls.target);
@@ -523,6 +555,34 @@ export class SpaceScene {
       }
     }
     this.#needsRender = true;
+  }
+
+  /**
+   * Put on the headset: fly in immersive VR, starting from the current flight view. Must be
+   * called from a click or tap. Does nothing outside flight mode or where VR isn't available.
+   */
+  async enterVR(): Promise<void> {
+    const xr = this.#renderer.xr;
+    if (!this.#flight.active || xr.isPresenting || !navigator.xr) return;
+    const session = await navigator.xr.requestSession("immersive-vr");
+    // The flight may have ended while the browser was asking for permission.
+    if (this.#disposed || !this.#flight.active) {
+      await session.end();
+      return;
+    }
+    session.addEventListener("end", () => {
+      this.#flight.setVR(false);
+      this.#needsRender = true;
+      this.#onVRChange?.(false);
+    });
+    await xr.setSession(session);
+    this.#flight.setVR(true);
+    this.#onVRChange?.(true);
+  }
+
+  /** Take the headset off: end any VR session (flight carries on on the screen). */
+  exitVR(): void {
+    void this.#renderer.xr.getSession()?.end();
   }
 
   /** On-screen roll buttons (touch devices). */
@@ -605,6 +665,7 @@ export class SpaceScene {
 
   dispose(): void {
     this.#disposed = true;
+    this.exitVR();
     this.#renderer.setAnimationLoop(null);
     this.#abort.abort();
     this.#resizeObserver.disconnect();
@@ -701,6 +762,8 @@ export class SpaceScene {
   }
 
   #resize(): void {
+    // The headset sets its own size while presenting; the canvas is resized when it ends.
+    if (this.#renderer.xr.isPresenting) return;
     const { clientWidth: width, clientHeight: height } = this.#container;
     if (width === 0 || height === 0) return;
 
@@ -928,23 +991,34 @@ export class SpaceScene {
     this.#cometFrame.multiplyQuaternions(this.#orbit, this.#parallax);
     this.#solarSystem.setOrientation(this.#backdrop, this.#cometFrame);
 
+    const vr = this.#renderer.xr.isPresenting;
     if (this.#flight.active) {
+      const session = vr ? this.#renderer.xr.getSession() : null;
+      // The headset's pose relative to the ship is last frame's: close enough to steer by.
+      if (session)
+        this.#flight.setVRInput(readVRInput(session.inputSources), this.#vrCamera.quaternion);
       this.#flight.update(delta);
       this.#needsRender = true;
     } else if (this.#exploring) {
       this.#updateExploreCamera(delta);
     }
 
+    // A headset needs a new frame every time, for every movement of the head.
+    if (vr) this.#needsRender = true;
     if (!this.#needsRender || !this.#ready) return;
     if (!this.#exploring && time - this.#lastRenderTime < AMBIENT_FRAME_MS) return;
     this.#needsRender = false;
     this.#lastRenderTime = time;
 
+    // In VR, the rig carries the headset along with the ship.
+    if (vr) this.#vrRig.position.copy(this.#camera.position);
+    if (vr) this.#vrRig.quaternion.copy(this.#camera.quaternion);
     // The sky is infinitely far away: keep it centred on the camera.
     this.#sky.position.copy(this.#camera.position);
     this.#updateDynamicUniforms();
-    this.#renderer.render(this.#scene, this.#camera);
+    this.#renderer.render(this.#scene, vr ? this.#vrCamera : this.#camera);
 
-    if (!this.#reducedMotion && delta > 0) this.#adaptQuality(delta);
+    // The headset's frame rate and resolution aren't the page's to change.
+    if (!vr && !this.#reducedMotion && delta > 0) this.#adaptQuality(delta);
   }
 }

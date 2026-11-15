@@ -10,6 +10,9 @@ export interface SpaceBackgroundHandle {
   zoomStep: (direction: 1 | -1) => void;
   setSunAngle: (degrees: number) => void;
   setRoll: (direction: -1 | 1, on: boolean) => void;
+  /** Start VR (from a click or tap) / end it. Only while flying. */
+  enterVR: () => void;
+  exitVR: () => void;
 }
 
 interface SpaceBackgroundProps {
@@ -18,6 +21,8 @@ interface SpaceBackgroundProps {
   flying: boolean;
   /** Called when the scene changes focus itself (a planet was tapped, or the view was reset). */
   onFocusChange?: (id: BodyId) => void;
+  /** Called when a VR session starts or ends. */
+  onVRChange?: (inVR: boolean) => void;
   ref?: Ref<SpaceBackgroundHandle>;
 }
 
@@ -27,7 +32,13 @@ type Status = "loading" | "ready" | "unsupported";
  * Decorative 3D background. Three.js is loaded lazily after hydration so it never blocks
  * the page content; a CSS gradient is shown until it's ready (or if WebGL is unavailable).
  */
-export function SpaceBackground({ exploring, flying, onFocusChange, ref }: SpaceBackgroundProps) {
+export function SpaceBackground({
+  exploring,
+  flying,
+  onFocusChange,
+  onVRChange,
+  ref,
+}: SpaceBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SpaceScene | null>(null);
   const exploringRef = useRef(exploring);
@@ -36,6 +47,10 @@ export function SpaceBackground({ exploring, flying, onFocusChange, ref }: Space
   useEffect(() => {
     onFocusChangeRef.current = onFocusChange;
   }, [onFocusChange]);
+  const onVRChangeRef = useRef(onVRChange);
+  useEffect(() => {
+    onVRChangeRef.current = onVRChange;
+  }, [onVRChange]);
   const [status, setStatus] = useState<Status>("loading");
 
   useEffect(() => {
@@ -53,6 +68,7 @@ export function SpaceBackground({ exploring, flying, onFocusChange, ref }: Space
         scene = new SpaceScene(container, {
           onReady: () => !disposed && setStatus("ready"),
           onFocusChange: (id) => onFocusChangeRef.current?.(id),
+          onVRChange: (inVR) => onVRChangeRef.current?.(inVR),
         });
         scene.setExploring(exploringRef.current);
         sceneRef.current = scene;
@@ -89,6 +105,12 @@ export function SpaceBackground({ exploring, flying, onFocusChange, ref }: Space
       zoomStep: (direction) => sceneRef.current?.zoomStep(direction),
       setSunAngle: (degrees) => sceneRef.current?.setSunAngle(degrees),
       setRoll: (direction, on) => sceneRef.current?.setRoll(direction, on),
+      enterVR: () => {
+        sceneRef.current
+          ?.enterVR()
+          .catch((error: unknown) => console.warn("Couldn't start VR", error));
+      },
+      exitVR: () => sceneRef.current?.exitVR(),
     }),
     [],
   );

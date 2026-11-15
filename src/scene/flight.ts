@@ -1,4 +1,5 @@
 import { Euler, MathUtils, Quaternion, Vector3, type PerspectiveCamera } from "three";
+import type { VRInput } from "./xr.ts";
 
 /**
  * A very simple free-flight camera: point the nose with the mouse (or by pointing a phone),
@@ -7,6 +8,9 @@ import { Euler, MathUtils, Quaternion, Vector3, type PerspectiveCamera } from "t
  *
  * Steering is relative to the ship, like a cockpit: after rolling, "up" on the mouse still
  * pitches towards the top of the screen. There's no up or down in space, so no limits.
+ *
+ * In VR the headset looks around inside the ship: thrust goes where you look, and the right
+ * thumbstick turns the ship itself (see `xr.ts`).
  */
 
 /** Units per second² of thrust, and how quickly speed bleeds off (per second). */
@@ -23,6 +27,8 @@ const DRAG_THRESHOLD = 8;
 /** Arrow keys turn, and Q / E roll, at these rates (radians per second). */
 const KEY_TURN_RATE = 1.2;
 const ROLL_RATE = 1.6;
+/** The VR turn stick, at full deflection (radians per second). */
+const VR_TURN_RATE = 1.5;
 /** Stay within this distance of the Earth, so the solar system can't be lost. */
 const MAX_RANGE = 1000;
 /**
@@ -134,6 +140,9 @@ export class FlightController {
   /** The ship's orientation (the camera's), turned about its own axes. */
   readonly #orientation = new Quaternion();
   readonly #step = new Quaternion();
+  readonly #heading = new Quaternion();
+  /** VR controller input and where the headset looks, relative to the ship; null outside VR. */
+  #vr: { input: VRInput; gaze: Quaternion } | null = null;
 
   #active = false;
   #abort: AbortController | null = null;
@@ -177,16 +186,38 @@ export class FlightController {
     return this.#active;
   }
 
-  /** Take over the camera from where it is now, facing the same way. */
-  start(): void {
+  /**
+   * Take over the camera from where it is now, facing the same way. The mouse is captured
+   * straight away where allowed (this runs from a click), unless `lockPointer` is false.
+   */
+  start({ lockPointer = true } = {}): void {
     if (this.#active) return;
     this.#active = true;
     this.#orientation.copy(this.#camera.quaternion);
     this.#velocity.set(0, 0, 0);
     this.#device = null;
     this.#bind();
-    // Capture the mouse straight away where allowed (this runs from the "Start" click).
-    if (matchMedia("(pointer: fine)").matches) this.#lockPointer();
+    if (lockPointer && matchMedia("(pointer: fine)").matches) this.#lockPointer();
+  }
+
+  /** Steer with VR controllers and the headset instead of the mouse or phone. */
+  setVR(on: boolean): void {
+    if (!on) {
+      this.#vr = null;
+      return;
+    }
+    this.#vr = { input: { thrust: 0, strafe: 0, turn: 0, boost: false }, gaze: new Quaternion() };
+    // The headset does the looking now.
+    this.#device = null;
+    this.#drag = null;
+    if (document.pointerLockElement === this.#canvas) document.exitPointerLock();
+  }
+
+  /** This frame's VR input, and the headset's orientation relative to the ship. */
+  setVRInput(input: VRInput, gaze: Quaternion): void {
+    if (!this.#vr) return;
+    this.#vr.input = input;
+    this.#vr.gaze.copy(gaze);
   }
 
   stop(): void {
@@ -199,6 +230,7 @@ export class FlightController {
     this.#rollLeft = false;
     this.#rollRight = false;
     this.#drag = null;
+    this.#vr = null;
     if (document.pointerLockElement === this.#canvas) document.exitPointerLock();
   }
 
@@ -223,18 +255,32 @@ export class FlightController {
     const keyPitch = (keys.has("ArrowUp") ? 1 : 0) - (keys.has("ArrowDown") ? 1 : 0);
     const keyRoll =
       (keys.has("KeyE") || this.#rollRight ? 1 : 0) - (keys.has("KeyQ") || this.#rollLeft ? 1 : 0);
+    const vr = this.#vr;
     this.#turn(
-      keyYaw * KEY_TURN_RATE * delta,
+      keyYaw * KEY_TURN_RATE * delta + (vr ? vr.input.turn * VR_TURN_RATE * delta : 0),
       keyPitch * KEY_TURN_RATE * delta,
       keyRoll * ROLL_RATE * delta,
     );
 
-    const forward = this.#direction();
-    const right = this.#right.copy(X_AXIS).applyQuaternion(this.#orientation);
+    // In VR, thrust goes where you look rather than where the ship's nose points.
+    const heading = vr
+      ? this.#heading.multiplyQuaternions(this.#orientation, vr.gaze)
+      : this.#orientation;
+    const forward = this.#forward.set(0, 0, -1).applyQuaternion(heading);
+    const right = this.#right.copy(X_AXIS).applyQuaternion(heading);
     const holding = this.#touches.size > 0;
-    const ahead = (keys.has("KeyW") || holding ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
-    const side = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
-    const boosting = holding || keys.has("ShiftLeft") || keys.has("ShiftRight");
+    const ahead = MathUtils.clamp(
+      (keys.has("KeyW") || holding ? 1 : 0) - (keys.has("KeyS") ? 1 : 0) + (vr?.input.thrust ?? 0),
+      -1,
+      1,
+    );
+    const side = MathUtils.clamp(
+      (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0) + (vr?.input.strafe ?? 0),
+      -1,
+      1,
+    );
+    const boosting =
+      holding || keys.has("ShiftLeft") || keys.has("ShiftRight") || (vr?.input.boost ?? false);
 
     const thrust = this.#thrust.copy(forward).multiplyScalar(ahead).addScaledVector(right, side);
     if (thrust.lengthSq() > 1) thrust.normalize();
@@ -344,7 +390,7 @@ export class FlightController {
     document.addEventListener(
       "mousemove",
       (event) => {
-        if (document.pointerLockElement !== canvas) return;
+        if (this.#vr || document.pointerLockElement !== canvas) return;
         this.#turn(event.movementX * MOUSE_SENSITIVITY, -event.movementY * MOUSE_SENSITIVITY);
       },
       { signal },
@@ -412,7 +458,7 @@ export class FlightController {
 
   /** Point the phone to look around: the view turns exactly as the phone does. */
   #onDeviceOrientation({ alpha, beta, gamma }: DeviceOrientationEvent): void {
-    if (alpha === null || beta === null || gamma === null) return;
+    if (this.#vr || alpha === null || beta === null || gamma === null) return;
     const screenAngle = screen.orientation?.angle ?? 0;
     const target = deviceQuaternion(alpha, beta, gamma, screenAngle, this.#deviceTarget);
     if (!this.#device) {
