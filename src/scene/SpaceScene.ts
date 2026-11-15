@@ -86,6 +86,12 @@ const PAN_THRESHOLD = 200;
 
 /** Higher = camera follows scroll faster. */
 const ZOOM_SMOOTHING = 8;
+/**
+ * By the bottom of the page the camera has swung this far round the Earth (away from the Sun,
+ * so the night side and city lights come into view) and risen this far above the orbital plane.
+ */
+const SCROLL_ORBIT_AZIMUTH = degToRad(-75);
+const SCROLL_ORBIT_ELEVATION = degToRad(16);
 
 /** Adaptive resolution: drop the pixel ratio if we can't hold this frame rate. */
 const TARGET_FPS = 45;
@@ -202,8 +208,15 @@ export class SpaceScene {
   #disposed = false;
   #exploring = false;
   #reducedMotion = this.#reducedMotionQuery.matches;
-  #distance = MIN_DISTANCE;
-  #targetDistance = MIN_DISTANCE;
+  /** Scroll progress (0–1) the camera is showing, easing towards the page's actual progress. */
+  #progress = 0;
+  #targetProgress = 0;
+  /** Swing round the Earth driven by scroll; the default camera pose is rotated by this. */
+  readonly #orbit = new Quaternion();
+  readonly #orbitStep = new Quaternion();
+  /** The camera's orientation at the start of the page (looking at the Earth). */
+  readonly #baseView = new Quaternion();
+  readonly #cometFrame = new Quaternion();
   #lastPointer: { x: number; y: number } | null = null;
   #lastTime: number | null = null;
   #needsRender = true;
@@ -225,6 +238,7 @@ export class SpaceScene {
     this.#camera.up.set(0, 0, 1);
     this.#camera.position.set(0, -MIN_DISTANCE, 0);
     this.#camera.lookAt(0, 0, 0);
+    this.#baseView.copy(this.#camera.quaternion);
 
     // Textures — fade the canvas in only once they've all arrived.
     let resolveTextures!: () => void;
@@ -362,8 +376,8 @@ export class SpaceScene {
 
     this.#bindEvents();
     this.#updateScrollTarget();
-    this.#distance = this.#targetDistance;
-    this.#applyDistance();
+    this.#progress = this.#targetProgress;
+    this.#applyScrollView();
     this.#updateDynamicUniforms();
 
     // Compile shaders in parallel with the downloads so the first frame doesn't hitch.
@@ -419,8 +433,8 @@ export class SpaceScene {
       // Leaving explore mode puts the camera back on the Earth.
       this.#onFocusChange?.(DEFAULT_BODY);
       this.#updateScrollTarget();
-      this.#distance = this.#targetDistance;
-      this.#applyDistance();
+      this.#progress = this.#targetProgress;
+      this.#applyScrollView();
     }
     this.#needsRender = true;
   }
@@ -558,6 +572,7 @@ export class SpaceScene {
       "change",
       (event) => {
         this.#reducedMotion = event.matches;
+        if (!this.#exploring) this.#applyScrollView();
         this.#needsRender = true;
       },
       { signal },
@@ -590,11 +605,10 @@ export class SpaceScene {
     this.#needsRender = true;
   }
 
-  /** Zoom out as the page scrolls. */
+  /** Zoom out and orbit the Earth as the page scrolls. */
   #updateScrollTarget(): void {
     const root = document.documentElement;
-    const progress = scrollProgress(window.scrollY, root.scrollHeight, window.innerHeight);
-    this.#targetDistance = lerp(MIN_DISTANCE, MAX_DISTANCE, progress);
+    this.#targetProgress = scrollProgress(window.scrollY, root.scrollHeight, window.innerHeight);
   }
 
   /** Subtle parallax: rotate the sky slightly as the mouse moves. */
@@ -616,8 +630,20 @@ export class SpaceScene {
     this.#needsRender = true;
   }
 
-  #applyDistance(): void {
-    this.#camera.position.set(0, -this.#distance, 0);
+  /**
+   * Place the camera for the current scroll progress: further out, swung round the Earth and
+   * raised a little. The whole default view is rotated rigidly, so the Earth stays centred and
+   * the horizon stays level. Reduced motion keeps the zoom but skips the swing.
+   */
+  #applyScrollView(): void {
+    const progress = this.#progress;
+    const turn = this.#reducedMotion ? 0 : progress;
+    this.#orbit
+      .setFromAxisAngle(Z_AXIS, SCROLL_ORBIT_AZIMUTH * turn)
+      .multiply(this.#orbitStep.setFromAxisAngle(X_AXIS, -SCROLL_ORBIT_ELEVATION * turn));
+    const distance = lerp(MIN_DISTANCE, MAX_DISTANCE, progress);
+    this.#camera.position.set(0, -distance, 0).applyQuaternion(this.#orbit);
+    this.#camera.quaternion.multiplyQuaternions(this.#orbit, this.#baseView);
   }
 
   /** Per-frame uniforms that depend on moving objects. */
@@ -756,26 +782,30 @@ export class SpaceScene {
       this.#needsRender = true;
     }
 
+    // Scroll moves the camera independently of the bodies, so it goes first (the comet's
+    // frame below depends on it).
+    if (!this.#exploring) {
+      const gap = this.#targetProgress - this.#progress;
+      if (Math.abs(gap) > 1e-5) {
+        this.#progress = this.#reducedMotion
+          ? this.#targetProgress
+          : this.#progress + gap * (1 - Math.exp(-ZOOM_SMOOTHING * delta));
+        this.#applyScrollView();
+        this.#needsRender = true;
+      }
+    }
+
     // Everything but the Earth turns together, so the Moon, planets and belt stay fixed
     // against the stars. The comet's orbit only follows the mouse (not the drift), so it
     // keeps coming back into view. Done before moving the camera, which may follow a body.
     this.#backdrop.multiplyQuaternions(this.#parallax, this.#drift);
     this.#sky.quaternion.multiplyQuaternions(this.#backdrop, this.#skyBase);
     this.#moonFrame.quaternion.copy(this.#backdrop);
-    this.#solarSystem.setOrientation(this.#backdrop, this.#parallax);
+    // The comet's orbit also turns with the scroll orbit, so it stays in the camera's view.
+    this.#cometFrame.multiplyQuaternions(this.#orbit, this.#parallax);
+    this.#solarSystem.setOrientation(this.#backdrop, this.#cometFrame);
 
-    if (this.#exploring) {
-      this.#updateExploreCamera(delta);
-    } else {
-      const gap = this.#targetDistance - this.#distance;
-      if (Math.abs(gap) > 0.001) {
-        this.#distance = this.#reducedMotion
-          ? this.#targetDistance
-          : this.#distance + gap * (1 - Math.exp(-ZOOM_SMOOTHING * delta));
-        this.#applyDistance();
-        this.#needsRender = true;
-      }
-    }
+    if (this.#exploring) this.#updateExploreCamera(delta);
 
     if (!this.#needsRender || !this.#ready) return;
     this.#needsRender = false;

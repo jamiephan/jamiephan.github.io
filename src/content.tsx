@@ -250,25 +250,6 @@ export const sections: Section[] = [
         ),
       },
       {
-        name: "AI Maps",
-        url: gh("HeroesOfTheStorm_AIMaps"),
-        description:
-          "Automatically injects AI players into maps from the S2MA repository, generating team compositions such as 1v5 and 3v3. The 5v5 variant is used by Try Mode 2.0.",
-      },
-      {
-        name: "Tools",
-        url: gh("HeroesOfTheStorm_Tools"),
-        description: "Utilities and scripts that support my Heroes of the Storm modding workflow.",
-      },
-    ],
-  },
-  {
-    id: "hots-data",
-    kind: "projects",
-    emoji: "🛠️",
-    title: "Heroes of the Storm: Data & Automation",
-    projects: [
-      {
         name: "Game Data",
         url: gh("HeroesOfTheStorm_Gamedata"),
         description: (
@@ -280,16 +261,27 @@ export const sections: Section[] = [
         ),
       },
       {
+        name: "S2MA",
+        url: gh("HeroesOfTheStorm_S2MA"),
+        description:
+          "A GitHub Actions pipeline that downloads each game update and extracts the map and mod files used by Try Mode 2.0 and AI Maps.",
+      },
+      {
+        name: "AI Maps",
+        url: gh("HeroesOfTheStorm_AIMaps"),
+        description:
+          "Automatically injects AI players into maps from the S2MA repository, generating team compositions such as 1v5 and 3v3. The 5v5 variant is used by Try Mode 2.0.",
+      },
+      {
         name: "Game Data HTTP",
         url: gh("HeroesOfTheStorm_Gamedata_HTTP"),
         description:
           "A Cloudflare Workers API that serves the Game Data repository in multiple formats, with badge endpoint support.",
       },
       {
-        name: "S2MA",
-        url: gh("HeroesOfTheStorm_S2MA"),
-        description:
-          "A GitHub Actions pipeline that downloads each game update and extracts the map and mod files used by Try Mode 2.0 and AI Maps.",
+        name: "Tools",
+        url: gh("HeroesOfTheStorm_Tools"),
+        description: "Utilities and scripts that support my Heroes of the Storm modding workflow.",
       },
     ],
   },
