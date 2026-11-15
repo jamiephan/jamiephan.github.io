@@ -505,7 +505,7 @@ export class SpaceScene {
     /* ---------- Earth ---------- */
     const earthTextures = {
       day: load(earthDayUrl, { sharp: true }),
-      night: load(earthNightUrl),
+      night: load(earthNightUrl, { sharp: true, body: "earth" }),
       normal: load(earthNormalUrl, { color: false, sharp: true }),
       specular: load(earthSpecularUrl, { color: false }),
       clouds: load(earthCloudsUrl, { color: false, sharp: true, body: "earth" }),
