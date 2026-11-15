@@ -22,7 +22,12 @@ import {
   WebGLRenderTarget,
 } from "three";
 
-import { NOISE, ProgressiveBake } from "./nebula.ts";
+import { ProgressiveBake } from "./nebula.ts";
+import { NOISE, glsl } from "./shaders/chunks.ts";
+import nebulaPuffBakeVert from "./shaders/nebulaPuffBake.vert.glsl?raw";
+import nebulaPuffBakeFrag from "./shaders/nebulaPuffBake.frag.glsl?raw";
+import nebulaPuffVert from "./shaders/nebulaPuff.vert.glsl?raw";
+import nebulaPuffFrag from "./shaders/nebulaPuff.frag.glsl?raw";
 import { mulberry32 } from "./stars.ts";
 
 type RGB = [number, number, number];
@@ -196,34 +201,8 @@ const createPuffBakeMaterial = (): ShaderMaterial =>
   new ShaderMaterial({
     depthTest: false,
     depthWrite: false,
-    vertexShader: /* glsl */ `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      varying vec2 vUv;
-      ${NOISE}
-
-      void main() {
-        vec2 tile = floor(vUv * 2.0);
-        vec2 local = fract(vUv * 2.0) * 2.0 - 1.0;
-        vec3 seed = vec3(tile * 13.7, tile.x * 3.1 + tile.y * 7.9);
-
-        vec3 p = vec3(local * 1.8, 0.0) + seed;
-        vec2 warp = vec2(fbm(p), fbm(p + vec3(5.2, 1.3, 2.8)));
-        float n = fbm(p + vec3(warp * 1.8, 0.0));
-        // Ragged outline; keep a margin so nothing touches the tile edge.
-        float r = length(local) * mix(1.25, 0.8, n);
-        float body = smoothstep(0.95, 0.15, r);
-        float wisps = pow(1.0 - abs(2.0 * fbm(p * 2.1 + vec3(warp, 1.0) * 2.0) - 1.0), 6.0);
-        float density = body * (smoothstep(0.25, 0.8, n) * 0.85 + 0.5 * wisps);
-        density *= smoothstep(1.0, 0.85, max(abs(local.x), abs(local.y)));
-        gl_FragColor = vec4(vec3(clamp(density, 0.0, 1.0)), 1.0);
-      }
-    `,
+    vertexShader: nebulaPuffBakeVert,
+    fragmentShader: glsl(NOISE, nebulaPuffBakeFrag),
   });
 
 const createPuffMaterial = (atlas: WebGLRenderTarget, time: { value: number }): ShaderMaterial =>
@@ -235,58 +214,8 @@ const createPuffMaterial = (atlas: WebGLRenderTarget, time: { value: number }): 
     transparent: true,
     depthWrite: false,
     blending: AdditiveBlending,
-    vertexShader: /* glsl */ `
-      attribute vec4 aShape;   // centre, radius
-      attribute vec3 aColor;
-      attribute vec4 aMotion;  // rotation, spin, tile, flash delay
-      attribute vec2 aFlash;   // period, phase
-      attribute vec3 aFlashColor;
-      uniform float uTime;
-      varying vec2 vUv;
-      varying vec3 vColor;
-
-      // A short burst of two or three soft flickers, then darkness until the next one.
-      float lightning(float t) {
-        if (t < 0.0 || t > 1.4) return 0.0;
-        return exp(-t * 3.5) * (0.55 + 0.45 * cos(t * 13.0)) + 0.6 * exp(-pow((t - 0.55) * 9.0, 2.0));
-      }
-
-      void main() {
-        vec4 view = modelViewMatrix * vec4(aShape.xyz, 1.0);
-        float radius = aShape.w;
-
-        // Fade as the camera gets close, so it drifts into the haze rather than through a card.
-        float distance = length(view.xyz);
-        float fade = smoothstep(0.12 * radius, 0.9 * radius, distance);
-
-        // Slow churning: each puff turns and breathes a little.
-        float angle = aMotion.x + aMotion.y * uTime;
-        float breathe = 1.0 + 0.08 * sin(uTime * 0.3 + aMotion.x * 5.0);
-        vec2 corner = mat2(cos(angle), sin(angle), -sin(angle), cos(angle)) * position.xy;
-        // Collapse fully faded puffs so they cost no fill rate.
-        view.xy += corner * radius * breathe * step(0.001, fade);
-        gl_Position = projectionMatrix * view;
-
-        vec2 tile = vec2(mod(aMotion.z, 2.0), floor(aMotion.z / 2.0));
-        vUv = (position.xy * 0.5 + 0.5 + tile) * 0.5;
-
-        float cycle = mod(uTime / aFlash.x + aFlash.y, 1.0) * aFlash.x;
-        float flash = lightning(cycle - aMotion.w);
-        vColor = (aColor + aFlashColor * length(aColor) * flash * 1.6) * fade;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform sampler2D uAtlas;
-      varying vec2 vUv;
-      varying vec3 vColor;
-      void main() {
-        float density = texture2D(uAtlas, vUv).r;
-        if (density < 0.004) discard;
-        gl_FragColor = vec4(vColor * density, 1.0);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }
-    `,
+    vertexShader: nebulaPuffVert,
+    fragmentShader: nebulaPuffFrag,
   });
 
 export interface NebulaCloudTarget {
