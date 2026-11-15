@@ -1063,6 +1063,8 @@ export interface SpaceDustOptions {
   /** Seconds of travel each streak spans, and the speeds over which streaks fade in. */
   streakTime: number;
   streakSpeeds: [number, number];
+  /** Speeds over which the streaks thin out to a quarter of their number. */
+  streakThinSpeeds: [number, number];
 }
 
 /** Shared by the dots and the streaks: where a grain is, and how much sunlight it scatters. */
@@ -1099,7 +1101,7 @@ const DUST_VERTEX_COMMON = /* glsl */ `
 const dustUniforms = (
   dust: SpaceDustUniforms,
   lighting: LightingUniforms,
-  { boxSize, size, intensity, drift, streakTime, streakSpeeds }: SpaceDustOptions,
+  { boxSize, size, intensity, drift, streakTime, streakSpeeds, streakThinSpeeds }: SpaceDustOptions,
   earth: { value: Vector4 },
 ) => ({
   ...lighting,
@@ -1111,6 +1113,7 @@ const dustUniforms = (
   uDrift: { value: drift },
   uStreakTime: { value: streakTime },
   uStreakSpeeds: { value: new Vector2(...streakSpeeds) },
+  uStreakThinSpeeds: { value: new Vector2(...streakThinSpeeds) },
 });
 
 /**
@@ -1189,6 +1192,7 @@ export const createDustStreakMaterial = (
       uniform vec3 uVelocity;
       uniform float uStreakTime;
       uniform vec2 uStreakSpeeds;
+      uniform vec2 uStreakThinSpeeds;
       varying vec3 vColor;
 
       void main() {
@@ -1197,8 +1201,14 @@ export const createDustStreakMaterial = (
         vec3 offset = head + uVelocity * uStreakTime * aEnd;
         gl_Position = projectionMatrix * viewMatrix * vec4(uCameraPos + offset, 1.0);
 
-        float streaking = smoothstep(uStreakSpeeds.x, uStreakSpeeds.y, length(uVelocity));
-        vColor = dustLight(head) * streaking * (1.0 - aEnd) * 3.0 * mix(0.3, 1.0, aRandom.y);
+        float speed = length(uVelocity);
+        float streaking = smoothstep(uStreakSpeeds.x, uStreakSpeeds.y, speed);
+        // Faster still, drop up to three quarters of the grains (picked by aRandom.x, with a soft edge so
+        // they fade rather than pop) so the field doesn't turn into a blur.
+        float keep = mix(1.0, 0.25, smoothstep(uStreakThinSpeeds.x, uStreakThinSpeeds.y, speed));
+        float thinning = clamp((keep - aRandom.x) / 0.05 + 1.0, 0.0, 1.0);
+        vColor = dustLight(head) * streaking * thinning * (1.0 - aEnd) * 3.0
+          * mix(0.3, 1.0, aRandom.y);
       }
     `,
     fragmentShader: /* glsl */ `

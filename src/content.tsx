@@ -39,6 +39,7 @@ export const site = {
     email: "mailto:me@jamiephan.net",
     github: "https://github.com/jamiephan",
     linkedin: "https://www.linkedin.com/in/phanjamie/",
+    source: "https://github.com/jamiephan/jamiephan.github.io",
   },
 } as const;
 

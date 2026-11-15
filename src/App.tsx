@@ -137,7 +137,9 @@ export function App() {
         </main>
 
         <footer className="footer">
-          <p>Thank you for visiting my website.</p>
+          <p>
+            Thank you for visiting my website. (<a href={site.links.source}>Source code</a>)
+          </p>
           <button type="button" className="easter-egg" onClick={enter}>
             Psst… try pressing <kbd>Shift</kbd> + <kbd>Q</kbd>, or click here!
           </button>

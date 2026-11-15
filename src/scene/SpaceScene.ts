@@ -91,7 +91,7 @@ const STAR_RADIUS = 1400;
 const STAR_COUNT = 4500;
 
 /** Dust motes in a box of this size (world units) that wraps around the camera. */
-const DUST_COUNT = 1800;
+const DUST_COUNT = 1350;
 const DUST_BOX = 44;
 const DUST = {
   boxSize: DUST_BOX,
@@ -103,6 +103,8 @@ const DUST = {
   /** Streaks span this many seconds of travel, and fade in between these speeds. */
   streakTime: 0.06,
   streakSpeeds: [15, 60] as [number, number],
+  /** Between these speeds, three quarters of the streaks fade out so fast flight stays readable. */
+  streakThinSpeeds: [60, 240] as [number, number],
 };
 
 /** The aurora / thunderstorm shell sits just above the clouds. */
