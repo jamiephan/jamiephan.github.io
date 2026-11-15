@@ -3,6 +3,7 @@ import { ContentSection } from "./components/ContentSection.tsx";
 import { ExploreDialog } from "./components/ExploreDialog.tsx";
 import { ExploreToolbar, type ZoomControls } from "./components/ExploreToolbar.tsx";
 import { FlightControls } from "./components/FlightControls.tsx";
+import { FpsCounter } from "./components/FpsCounter.tsx";
 import { SpaceBackground, type SpaceBackgroundHandle } from "./components/SpaceBackground.tsx";
 import { sections, site } from "./content.tsx";
 import { useExploreMode } from "./hooks/useExploreMode.ts";
@@ -155,6 +156,7 @@ export function App() {
       </div>
 
       <ExploreDialog open={helpOpen} onClose={closeHelp} />
+      {exploring && <FpsCounter />}
       {flying && (
         <FlightControls
           onRollLeft={rollLeft}

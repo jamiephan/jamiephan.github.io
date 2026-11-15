@@ -1177,3 +1177,19 @@ main {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* Debug frame-rate readout in explore and flight mode. */
+.fps-counter {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  z-index: 1000;
+  padding: 0 2px;
+  font:
+    10px/1.2 ui-monospace,
+    monospace;
+  color: rgb(255 255 255 / 0.6);
+  background: rgb(0 0 0 / 0.35);
+  pointer-events: none;
+  user-select: none;
+}
