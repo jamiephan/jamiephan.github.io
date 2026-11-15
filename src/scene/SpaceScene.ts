@@ -54,7 +54,7 @@ import {
   createStarMaterial,
   type SpaceDustUniforms,
 } from "./materials.ts";
-import { degToRad, lerp, perFrameAt60, scrollProgress } from "./math.ts";
+import { degToRad, lerp, perFrameAt60, scrollProgress, wrappedOffset } from "./math.ts";
 import { DEFAULT_BODY, type BodyId } from "./bodies.ts";
 import { FlightController, type Obstacle } from "./flight.ts";
 import { createSolarSystem, type FocusTarget, type SolarSystem } from "./solarSystem.ts";
@@ -344,6 +344,12 @@ export class SpaceScene {
   #viewRoll = 0;
   readonly #rollHeld = new Set<-1 | 1>();
   #rollReturn: { from: number; progress: number } | null = null;
+  /**
+   * The Earth's and Moon's turns at page load, and the glide back to them (with the sky, planets,
+   * belt and comet) on reset.
+   */
+  #home = { earth: 0, clouds: 0, moon: 0 };
+  #homeReturn: { step: (progress: number) => void; progress: number } | null = null;
   /** A reset is animating: the user's camera input is ignored until it finishes. */
   #resetting = false;
   /** A zoom button being held, and the goal distance when it was pressed. */
@@ -568,6 +574,11 @@ export class SpaceScene {
     this.#moon.rotation.set(Math.PI / 2, Math.PI, 0);
     this.#moonPivot.rotation.z = -0.4;
     this.#moonPivot.add(this.#moon);
+    this.#home = {
+      earth: this.#earth.rotation.y,
+      clouds: this.#clouds.rotation.y,
+      moon: this.#moonPivot.rotation.z,
+    };
     this.#moonOrbit.rotation.x = MOON_ORBIT_TILT;
     this.#moonOrbit.add(this.#moonPivot);
     this.#moonFrame.add(this.#moonOrbit);
@@ -903,7 +914,40 @@ export class SpaceScene {
     // Level out the shorter way round.
     const roll = MathUtils.euclideanModulo(this.#viewRoll + Math.PI, 2 * Math.PI) - Math.PI;
     if (roll !== 0) this.#rollReturn = { from: roll, progress };
+    this.#homeReturn = { step: this.#returnHome(), progress };
     this.#setResetting(true);
+  }
+
+  /**
+   * Begin gliding everything that moves on its own back to where it was at page load, each the
+   * shorter way round. Returns a step taking eased progress 0–1.
+   */
+  #returnHome(): (progress: number) => void {
+    const home = this.#home;
+    const earth = wrappedOffset(this.#earth.rotation.y, home.earth, 2 * Math.PI);
+    const clouds = wrappedOffset(this.#clouds.rotation.y, home.clouds, 2 * Math.PI);
+    const moon = wrappedOffset(this.#moonPivot.rotation.z, home.moon, 2 * Math.PI);
+    const drift = this.#drift.clone();
+    const identity = new Quaternion();
+    const solarSystem = this.#solarSystem.returnHome();
+    return (progress) => {
+      const left = 1 - progress;
+      this.#earth.rotation.y = home.earth + earth * left;
+      this.#clouds.rotation.y = home.clouds + clouds * left;
+      this.#moonPivot.rotation.z = home.moon + moon * left;
+      this.#drift.slerpQuaternions(drift, identity, progress);
+      solarSystem(progress);
+    };
+  }
+
+  /** Step the glide home started by a reset (after the bodies' own motion this frame). */
+  #updateHomeReturn(delta: number): void {
+    const homeReturn = this.#homeReturn;
+    if (!homeReturn) return;
+    homeReturn.progress = Math.min(1, homeReturn.progress + delta / FOCUS_SECONDS);
+    homeReturn.step(easeInOutCubic(homeReturn.progress));
+    if (homeReturn.progress >= 1) this.#homeReturn = null;
+    this.#needsRender = true;
   }
 
   /** Lock (or unlock) the user's camera input for the length of a reset. */
@@ -1577,6 +1621,7 @@ export class SpaceScene {
       this.#meteors.update(delta);
       this.#needsRender = true;
     }
+    this.#updateHomeReturn(delta);
 
     // Scroll moves the camera independently of the bodies, so it goes first (the comet's
     // frame below depends on it).
@@ -1624,7 +1669,13 @@ export class SpaceScene {
       this.#updateExploreCamera(delta);
     }
     this.#updateSunReturn(delta);
-    if (this.#resetting && !this.#transition && !this.#sunReturn && !this.#rollReturn)
+    if (
+      this.#resetting &&
+      !this.#transition &&
+      !this.#sunReturn &&
+      !this.#rollReturn &&
+      !this.#homeReturn
+    )
       this.#setResetting(false);
 
     this.#updateHdBody();

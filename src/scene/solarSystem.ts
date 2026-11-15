@@ -59,7 +59,7 @@ import {
   spinAxis,
   type PlanetId,
 } from "./layout.ts";
-import { degToRad } from "./math.ts";
+import { degToRad, wrappedOffset } from "./math.ts";
 import { meanAnomalyAt, orbitAt, periodForHiddenTime, visibleFraction } from "./orbit.ts";
 import { mulberry32 } from "./stars.ts";
 
@@ -243,11 +243,19 @@ export interface SolarSystem {
    * rocks for distant ones.
    */
   updateBelt: (camera: Camera, cull: boolean) => void;
+  /**
+   * Start a glide back to how things stood at page load: the planets' spins, the belt's drift
+   * and the comet's place on its orbit, each the shorter way round. Returns a step to call
+   * after `update` with eased progress 0–1 (1 = home).
+   */
+  returnHome: () => (progress: number) => void;
 }
+
+const TAU = 2 * Math.PI;
 
 export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms): SolarSystem => {
   const group = new Group();
-  const spinners: { mesh: Mesh; speed: number }[] = [];
+  const spinners: { mesh: Mesh; speed: number; home: number }[] = [];
   const targets = new Map<BodyId, FocusTarget>();
   /** World-space uniforms that must follow the group's rotation. */
   const rotated: { value: Vector3; base: Vector3 }[] = [];
@@ -304,7 +312,7 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     planet.scale.y = spec.oblateness ?? 1;
     system.add(planet);
     group.add(system);
-    spinners.push({ mesh: planet, speed: spec.spin });
+    spinners.push({ mesh: planet, speed: spec.spin, home: planet.rotation.y });
     targets.set(spec.id, {
       radius,
       // Pull back further for ringed planets so the whole ring system fits.
@@ -352,6 +360,21 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     fitCometToView: comet.fitToView,
     setPointScale: comet.setPointScale,
     updateBelt: belt.update,
+    returnHome: () => {
+      const spins = spinners.map(({ mesh, home }) => ({
+        mesh,
+        home,
+        offset: wrappedOffset(mesh.rotation.y, home, TAU),
+      }));
+      const beltOffset = wrappedOffset(beltShift.value, 0, BELT.length);
+      const cometStep = comet.returnHome();
+      return (progress) => {
+        const left = 1 - progress;
+        for (const { mesh, home, offset } of spins) mesh.rotation.y = home + offset * left;
+        beltShift.value = beltOffset * left;
+        cometStep(progress);
+      };
+    },
   };
 };
 
@@ -517,6 +540,8 @@ interface Comet {
   advance: (seconds: number) => void;
   /** Recompute world-space uniforms with the orbit turned by `frame`. */
   place: (frame: Quaternion) => void;
+  /** Glide back to the starting point on the orbit (see `SolarSystem.returnHome`). */
+  returnHome: () => (progress: number) => void;
 }
 
 /** Per-grain random attributes for the dust tail (see `createCometDustMaterial`). */
@@ -685,5 +710,13 @@ const createComet = (lighting: LightingUniforms): Comet => {
       place(frame);
     },
     place,
+    returnHome: () => {
+      const home = COMET.startMeanAnomaly;
+      const offset = wrappedOffset(meanAnomaly, home, TAU);
+      // Placed with the orbit's frame when the scene next orients the system.
+      return (progress) => {
+        meanAnomaly = MathUtils.euclideanModulo(home + offset * (1 - progress), TAU);
+      };
+    },
   };
 };

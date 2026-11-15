@@ -25,3 +25,13 @@ export const lerp = (from: number, to: number, t: number): number => from + (to 
  */
 export const perFrameAt60 = (amountPerFrame: number, deltaSeconds: number): number =>
   amountPerFrame * deltaSeconds * 60;
+
+/**
+ * How far `value` is from `home` on a cycle of length `period` (an angle, a wrapping offset),
+ * going the shorter way round: between −period/2 and period/2. `home + offset` lands on `value`
+ * (modulo the period).
+ */
+export const wrappedOffset = (value: number, home: number, period: number): number => {
+  const half = period / 2;
+  return ((((value - home + half) % period) + period) % period) - half;
+};

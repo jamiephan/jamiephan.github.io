@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { clamp, degToRad, lerp, perFrameAt60, scrollProgress } from "./math.ts";
+import { clamp, degToRad, lerp, perFrameAt60, scrollProgress, wrappedOffset } from "./math.ts";
 
 describe("scene math", () => {
   it("converts degrees to radians", () => {
@@ -38,5 +38,13 @@ describe("scene math", () => {
     expect(perFrameAt60(1, 1 / 60)).toBeCloseTo(1);
     expect(perFrameAt60(1, 1 / 120)).toBeCloseTo(0.5);
     expect(perFrameAt60(0.2, 1)).toBeCloseTo(12);
+  });
+
+  it("finds the shorter way round a cycle", () => {
+    expect(wrappedOffset(1, 0, 10)).toBeCloseTo(1);
+    expect(wrappedOffset(9, 0, 10)).toBeCloseTo(-1);
+    expect(wrappedOffset(-9, 0, 10)).toBeCloseTo(1);
+    expect(wrappedOffset(23, 2, 10)).toBeCloseTo(1);
+    expect(wrappedOffset(2 * Math.PI * 7 + 0.5, 0, 2 * Math.PI)).toBeCloseTo(0.5);
   });
 });
