@@ -177,6 +177,12 @@ export interface SpaceSceneOptions {
   onFocusChange?: (id: BodyId) => void;
   /** Called when a VR session starts or ends. */
   onVRChange?: (inVR: boolean) => void;
+  /**
+   * Whether a headset is available. Only VR draws the scene straight to the canvas's
+   * framebuffer (everything else goes through the multisampled HDR buffer), so the canvas
+   * itself is only multisampled when it is.
+   */
+  vrSupported?: boolean;
 }
 
 /** Explore mode: seconds to fly between bodies, and hold-to-zoom speed (e-folds per second). */
@@ -343,14 +349,20 @@ export class SpaceScene {
 
   constructor(
     container: HTMLElement,
-    { onReady, onFocusChange, onVRChange }: SpaceSceneOptions = {},
+    { onReady, onFocusChange, onVRChange, vrSupported = false }: SpaceSceneOptions = {},
   ) {
     this.#container = container;
     this.#onFocusChange = onFocusChange;
     this.#onVRChange = onVRChange;
 
     // Renderer — cap DPR at 2; beyond that costs a lot of fill-rate for no visible gain.
-    this.#renderer = new WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    // On screen the canvas only ever receives full-screen post-processing quads, so a
+    // multisampled canvas (several bytes per sample per pixel, resolved every frame) would be
+    // wasted; WebXR takes its multisampling from this flag, though.
+    this.#renderer = new WebGLRenderer({
+      antialias: vrSupported,
+      powerPreference: "high-performance",
+    });
     this.#renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.#renderer.toneMapping = ACESFilmicToneMapping;
     this.#renderer.toneMappingExposure = 1;
@@ -359,6 +371,7 @@ export class SpaceScene {
     // Seated, origin at the head: the cockpit starts exactly where the flight camera is.
     this.#renderer.xr.setReferenceSpaceType("local");
     container.append(this.#renderer.domElement);
+    this.#vrSupported = vrSupported;
     void isVRSupported().then((supported) => (this.#vrSupported = supported));
 
     this.#camera = new PerspectiveCamera(60, 1, 0.5, CAMERA_FAR);
@@ -1116,10 +1129,16 @@ export class SpaceScene {
     this.#earthMaterial.uniforms.uCloudOffset!.value = -this.#clouds.rotation.y / (2 * Math.PI);
   }
 
-  /** Drop the resolution on devices that can't keep up, rather than stuttering. */
-  #adaptQuality(delta: number): void {
+  /**
+   * Drop the resolution on devices that can't keep up, rather than stuttering. Measures the
+   * time between rendered frames, not between ticks: on high-refresh screens the ambient view
+   * skips ticks, and counting only the rendered ticks' deltas would overstate the frame rate.
+   */
+  #adaptQuality(interval: number): void {
+    // A gap this long is a pause (hidden tab, nothing to draw), not a slow frame.
+    if (interval <= 0 || interval > 0.25) return;
     const perf = this.#perf;
-    perf.time += delta;
+    perf.time += interval;
     perf.frames++;
     if (perf.time < PERF_SAMPLE_SECONDS) return;
 
@@ -1341,6 +1360,7 @@ export class SpaceScene {
     if (!this.#needsRender || !this.#ready) return;
     if (!this.#exploring && time - this.#lastRenderTime < AMBIENT_FRAME_MS) return;
     this.#needsRender = false;
+    const interval = (time - this.#lastRenderTime) / 1000;
     this.#lastRenderTime = time;
 
     // In VR, the rig carries the headset along with the ship.
@@ -1349,6 +1369,6 @@ export class SpaceScene {
     this.#renderFrame(time);
 
     // The headset's frame rate and resolution aren't the page's to change.
-    if (!vr && !this.#reducedMotion && delta > 0) this.#adaptQuality(delta);
+    if (!vr && !this.#reducedMotion) this.#adaptQuality(interval);
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { BodyId } from "../scene/bodies.ts";
 import type { SpaceScene } from "../scene/SpaceScene.ts";
+import { isVRSupported } from "../scene/xr.ts";
 
 export interface SpaceBackgroundHandle {
   resetView: () => void;
@@ -59,8 +60,9 @@ export function SpaceBackground({
     let disposed = false;
     let scene: SpaceScene | undefined;
 
-    import("../scene/SpaceScene.ts")
-      .then(({ SpaceScene, isWebGL2Available }) => {
+    // The VR check runs alongside the download: it decides whether the canvas needs MSAA.
+    Promise.all([import("../scene/SpaceScene.ts"), isVRSupported()])
+      .then(([{ SpaceScene, isWebGL2Available }, vrSupported]) => {
         const container = containerRef.current;
         if (disposed || !container) return;
         if (!isWebGL2Available()) {
@@ -71,6 +73,7 @@ export function SpaceBackground({
           onReady: () => !disposed && setStatus("ready"),
           onFocusChange: (id) => onFocusChangeRef.current?.(id),
           onVRChange: (inVR) => onVRChangeRef.current?.(inVR),
+          vrSupported,
         });
         scene.setExploring(exploringRef.current);
         sceneRef.current = scene;
