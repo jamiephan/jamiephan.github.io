@@ -1,0 +1,517 @@
+/* ---------- Tokens ---------- */
+:root {
+  --color-bg: #05060f;
+  --color-text: #f3f5ff;
+  --color-muted: #c3c9e0;
+  --color-link: #68fcfc;
+  --color-link-hover: #b4fefe;
+  --color-panel: rgb(6 8 22 / 0.62);
+  --color-panel-border: rgb(255 255 255 / 0.1);
+  --color-focus: #ffd166;
+
+  --font-sans: "Open Sans Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+
+  --radius: 1rem;
+  --gutter: clamp(1rem, 0.5rem + 3vw, 3rem);
+
+  color-scheme: dark;
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ---------- Minimal reset ---------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body,
+h1,
+h2,
+h3,
+p,
+dl,
+dd,
+ul {
+  margin: 0;
+}
+
+body {
+  min-height: 100dvh;
+  overflow-x: clip;
+  /* Fallback/placeholder while the 3D scene loads, or if WebGL is unavailable. */
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 45%, rgb(38 70 140 / 0.35), transparent 70%),
+    radial-gradient(ellipse at 80% 20%, rgb(120 90 200 / 0.18), transparent 50%), var(--color-bg);
+  background-attachment: fixed;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ---------- Utilities ---------- */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Links & focus ---------- */
+a {
+  color: var(--color-link);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgb(104 252 252 / 0.45);
+  text-underline-offset: 0.2em;
+  transition:
+    color 150ms,
+    text-decoration-color 150ms;
+
+  &:hover {
+    color: var(--color-link-hover);
+    text-decoration-color: currentColor;
+  }
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+code,
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+kbd {
+  display: inline-block;
+  padding: 0.05em 0.4em;
+  border: 1px solid rgb(255 255 255 / 0.35);
+  border-bottom-width: 2px;
+  border-radius: 0.3em;
+  line-height: 1.3;
+}
+
+/* ---------- 3D background ---------- */
+.space {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  /* Large viewport height: the canvas doesn't resize as mobile browser bars show/hide. */
+  height: 100lvh;
+  opacity: 0;
+  transition: opacity 1.2s ease-out;
+
+  &[data-status="ready"] {
+    opacity: 1;
+  }
+
+  & canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+/* ---------- Page ---------- */
+.page {
+  position: relative;
+  isolation: isolate;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 0.8);
+  transition:
+    opacity 500ms,
+    visibility 0s;
+
+  /* Explore mode: fade out, then stop intercepting pointer events. */
+  &[inert] {
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 500ms,
+      visibility 0s 500ms;
+  }
+}
+
+.hero {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 0.5rem;
+  min-height: 100svh;
+  padding-inline: var(--gutter);
+
+  & h1 {
+    font-size: clamp(2.5rem, 1.5rem + 5vw, 5rem);
+    font-weight: 700;
+  }
+}
+
+.hero__tagline {
+  font-size: clamp(1.125rem, 1rem + 1vw, 1.5rem);
+  color: var(--color-muted);
+}
+
+.hero__scroll {
+  margin-block-start: 2rem;
+  font-size: 1rem;
+}
+
+main {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--gutter);
+  padding-inline: var(--gutter);
+}
+
+/* Each section gets roughly a screen of scrolling so the camera has room to zoom out. */
+.section {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  min-height: 100svh;
+  padding-block: 3rem;
+  scroll-margin-block-start: 1rem;
+}
+
+@media (width >= 48rem) {
+  .section {
+    grid-column: 2 / 12;
+  }
+}
+
+@media (width >= 72rem) {
+  .section[data-align="start"] {
+    grid-column: 2 / 8;
+  }
+
+  .section[data-align="end"] {
+    grid-column: 6 / 12;
+  }
+}
+
+.panel {
+  width: 100%;
+  padding: clamp(1.25rem, 0.75rem + 2vw, 2.25rem);
+  font-size: clamp(1rem, 0.95rem + 0.3vw, 1.2rem);
+  background: var(--color-panel);
+  border: 1px solid var(--color-panel-border);
+  border-radius: var(--radius);
+  box-shadow: 0 1.5rem 3rem -1rem rgb(0 0 0 / 0.6);
+
+  & > * + * {
+    margin-block-start: 1em;
+  }
+
+  & h2 {
+    font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2.1rem);
+  }
+}
+
+.skills {
+  display: grid;
+  gap: 0.85em;
+
+  & dt {
+    font-weight: 700;
+  }
+
+  & dd {
+    color: var(--color-muted);
+  }
+}
+
+.projects {
+  display: grid;
+  gap: 1.5em;
+  padding: 0;
+  list-style: none;
+}
+
+.project {
+  & h3 {
+    font-size: 1.15em;
+    margin-block-end: 0.25em;
+  }
+
+  & p {
+    color: var(--color-muted);
+  }
+}
+
+.project__source {
+  font-size: 0.8em;
+  font-weight: 400;
+}
+
+.footer {
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  padding: 6rem var(--gutter) max(3rem, env(safe-area-inset-bottom));
+  text-align: center;
+  font-size: 1.125rem;
+}
+
+.easter-egg {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  font-style: italic;
+  background: none;
+  border: 0;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 300ms;
+
+  &:hover,
+  &:focus-visible {
+    opacity: 1;
+  }
+}
+
+/* ---------- Buttons ---------- */
+.button {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  background: rgb(20 24 50 / 0.85);
+  border: 1px solid rgb(255 255 255 / 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 150ms;
+
+  &:hover {
+    background: rgb(40 48 96 / 0.95);
+  }
+}
+
+.button--primary {
+  color: #03121a;
+  background: var(--color-link);
+  border-color: transparent;
+
+  &:hover {
+    background: var(--color-link-hover);
+  }
+}
+
+/* ---------- Explore mode ---------- */
+:root {
+  /* Minimum control size: WCAG 2.5.8 everywhere, 2.5.5 (44px) on touch screens. */
+  --target-size: 2.25rem;
+
+  @media (pointer: coarse) {
+    --target-size: 2.75rem;
+  }
+}
+
+.explore-controls {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 1;
+  display: grid;
+  /* One column no wider than the screen, so rows wrap or scroll instead of overflowing. */
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 0.5rem;
+  padding-block-end: max(1rem, env(safe-area-inset-bottom, 0px));
+  padding-inline: max(0.75rem, env(safe-area-inset-left, 0px))
+    max(0.75rem, env(safe-area-inset-right, 0px));
+  /* Let drags on the empty parts of the bar reach the canvas. */
+  pointer-events: none;
+
+  & > * {
+    max-inline-size: 100%;
+    pointer-events: auto;
+  }
+}
+
+/* A row of chips that scrolls sideways on narrow screens. */
+.focus-picker {
+  display: flex;
+  gap: 0.4rem;
+  /* Fieldsets default to min-content width, which would stop the row from scrolling. */
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  margin: 0;
+  padding: 0.25rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  background: rgb(6 8 22 / 0.55);
+  border: 1px solid var(--color-panel-border);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+}
+
+.focus-picker__option {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-block-size: var(--target-size);
+  padding-inline: 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  border-radius: 999px;
+  cursor: pointer;
+  scroll-snap-align: center;
+  touch-action: manipulation;
+  transition:
+    background-color 150ms,
+    color 150ms;
+
+  /* The radio stays in the accessibility tree and keeps native arrow-key behaviour. */
+  & input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: inherit;
+  }
+
+  &:hover {
+    color: var(--color-text);
+    background: rgb(255 255 255 / 0.08);
+  }
+
+  &:has(:checked) {
+    color: #03121a;
+    background: var(--color-link);
+  }
+
+  &:has(:focus-visible) {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}
+
+.explore-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+
+  & .button {
+    min-block-size: var(--target-size);
+    touch-action: manipulation;
+  }
+}
+
+.button--icon {
+  /* Square, matching the height of the text buttons beside it. */
+  min-inline-size: max(var(--target-size), 2.75rem);
+  padding: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+/* Holding these must not start text selection or the long-press menu. */
+.explore-zoom {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.explore-dialog {
+  width: min(30rem, 100% - 2rem);
+  max-height: min(40rem, 100dvh - 2rem);
+  padding: clamp(1.25rem, 4vw, 2rem);
+  color: var(--color-text);
+  background: #0b0f26;
+  border: 1px solid var(--color-panel-border);
+  border-radius: var(--radius);
+  box-shadow: 0 2rem 4rem rgb(0 0 0 / 0.6);
+
+  &:modal {
+    overscroll-behavior: contain;
+  }
+
+  &::backdrop {
+    background: rgb(0 0 10 / 0.55);
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
+
+  & > * + * {
+    margin-block-start: 1rem;
+  }
+
+  & h2 {
+    font-size: 1.5rem;
+  }
+
+  & form {
+    display: flex;
+    justify-content: flex-end;
+  }
+}
+
+.explore-dialog__controls {
+  display: grid;
+  gap: 0.4rem;
+
+  & > div {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    padding-block: 0.4rem;
+    border-block-end: 1px solid rgb(255 255 255 / 0.08);
+  }
+
+  & dt {
+    font-weight: 600;
+  }
+
+  & dd {
+    color: var(--color-muted);
+  }
+}
+
+/* ---------- Motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

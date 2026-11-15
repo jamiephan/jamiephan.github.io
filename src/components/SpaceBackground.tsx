@@ -1,0 +1,86 @@
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import type { BodyId } from "../scene/bodies.ts";
+import type { SpaceScene } from "../scene/SpaceScene.ts";
+
+export interface SpaceBackgroundHandle {
+  resetView: () => void;
+  focus: (id: BodyId) => void;
+  startZoom: (direction: 1 | -1) => void;
+  stopZoom: () => void;
+  zoomStep: (direction: 1 | -1) => void;
+}
+
+interface SpaceBackgroundProps {
+  exploring: boolean;
+  /** Called when the scene changes focus itself (a planet was tapped, or the view was reset). */
+  onFocusChange?: (id: BodyId) => void;
+  ref?: Ref<SpaceBackgroundHandle>;
+}
+
+type Status = "loading" | "ready" | "unsupported";
+
+/**
+ * Decorative 3D background. Three.js is loaded lazily after hydration so it never blocks
+ * the page content; a CSS gradient is shown until it's ready (or if WebGL is unavailable).
+ */
+export function SpaceBackground({ exploring, onFocusChange, ref }: SpaceBackgroundProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<SpaceScene | null>(null);
+  const exploringRef = useRef(exploring);
+  // Read through a ref so the scene (created once) always calls the latest callback.
+  const onFocusChangeRef = useRef(onFocusChange);
+  useEffect(() => {
+    onFocusChangeRef.current = onFocusChange;
+  }, [onFocusChange]);
+  const [status, setStatus] = useState<Status>("loading");
+
+  useEffect(() => {
+    let disposed = false;
+    let scene: SpaceScene | undefined;
+
+    import("../scene/SpaceScene.ts")
+      .then(({ SpaceScene, isWebGL2Available }) => {
+        const container = containerRef.current;
+        if (disposed || !container) return;
+        if (!isWebGL2Available()) {
+          setStatus("unsupported");
+          return;
+        }
+        scene = new SpaceScene(container, {
+          onReady: () => !disposed && setStatus("ready"),
+          onFocusChange: (id) => onFocusChangeRef.current?.(id),
+        });
+        scene.setExploring(exploringRef.current);
+        sceneRef.current = scene;
+      })
+      .catch((error: unknown) => {
+        console.error("Failed to start the 3D background", error);
+        if (!disposed) setStatus("unsupported");
+      });
+
+    return () => {
+      disposed = true;
+      scene?.dispose();
+      sceneRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    exploringRef.current = exploring;
+    sceneRef.current?.setExploring(exploring);
+  }, [exploring]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      resetView: () => sceneRef.current?.resetView(),
+      focus: (id) => sceneRef.current?.focus(id),
+      startZoom: (direction) => sceneRef.current?.startZoom(direction),
+      stopZoom: () => sceneRef.current?.stopZoom(),
+      zoomStep: (direction) => sceneRef.current?.zoomStep(direction),
+    }),
+    [],
+  );
+
+  return <div ref={containerRef} className="space" data-status={status} aria-hidden="true" />;
+}
