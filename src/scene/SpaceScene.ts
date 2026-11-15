@@ -1,12 +1,17 @@
 import {
   ACESFilmicToneMapping,
+  BackSide,
   BufferAttribute,
   BufferGeometry,
   Color,
+  Euler,
+  FrontSide,
   Group,
   ImageBitmapLoader,
+  LineSegments,
   LinearFilter,
   LoadingManager,
+  MathUtils,
   Matrix4,
   Mesh,
   NoColorSpace,
@@ -37,11 +42,15 @@ import moonUrl from "../assets/textures/moon.webp";
 import {
   createAtmosphereMaterial,
   createCloudMaterial,
+  createDustStreakMaterial,
+  createEarthNightMaterial,
   createEarthMaterial,
   createLightingUniforms,
   createRockyMaterial,
   createSkyMaterial,
+  createSpaceDustMaterial,
   createStarMaterial,
+  type SpaceDustUniforms,
 } from "./materials.ts";
 import { degToRad, lerp, perFrameAt60, scrollProgress } from "./math.ts";
 import { DEFAULT_BODY, type BodyId } from "./bodies.ts";
@@ -49,7 +58,12 @@ import { FlightController, type Obstacle } from "./flight.ts";
 import { createSolarSystem, type FocusTarget, type SolarSystem } from "./solarSystem.ts";
 import { previewFor } from "./textures.ts";
 import { isVRSupported, readVRInput } from "./xr.ts";
-import { generateStarfield } from "./stars.ts";
+import { NEBULA_RANGE, NebulaTexture } from "./nebula.ts";
+import { NebulaClouds } from "./nebulaClouds.ts";
+import { Galaxies } from "./galaxies.ts";
+import { Meteors } from "./meteors.ts";
+import { PostProcessing } from "./postprocessing.ts";
+import { generateStarfield, mulberry32 } from "./stars.ts";
 
 /* ---------- Layout (world units; +Z is "up" on screen, the camera looks along +Y) ---------- */
 
@@ -69,10 +83,50 @@ const MOON_ORBIT_TILT = -0.2;
 const SUN_DIRECTION = new Vector3(1, -0.35, 0.25).normalize();
 const SUN_COLOR = new Color(1, 0.96, 0.9).multiplyScalar(1.25);
 
+/** Far enough to see a nebula on the far side of the flight range from the other side. */
+const CAMERA_FAR = 8000;
+
 /** The sky sits well beyond the furthest planet (and the camera's far plane covers it). */
 const SKY_RADIUS = 1500;
 const STAR_RADIUS = 1400;
 const STAR_COUNT = 4500;
+
+/** Dust motes in a box of this size (world units) that wraps around the camera. */
+const DUST_COUNT = 1800;
+const DUST_BOX = 44;
+const DUST = {
+  boxSize: DUST_BOX,
+  /** Grain diameter in world units (exaggerated: real grains are microscopic). */
+  size: 0.0175,
+  intensity: 0.25,
+  /** Slow drift through the solar wind, units per second. */
+  drift: new Vector3(0.12, 0.05, -0.03),
+  /** Streaks span this many seconds of travel, and fade in between these speeds. */
+  streakTime: 0.06,
+  streakSpeeds: [15, 60] as [number, number],
+};
+
+/** The aurora / thunderstorm shell sits just above the clouds. */
+const NIGHT_SHELL_RADIUS = EARTH_RADIUS * 1.012;
+
+/**
+ * Exposure adapts like an eye or an auto-exposing camera: darker with the Sun in view,
+ * a little brighter facing away from it. Darkening is quicker than recovering.
+ */
+const EXPOSURE = { base: 1, sunInView: 0.7, awayFromSun: 1.08, darken: 2.5, brighten: 0.8 };
+/** The Sun's angular radius (radians), for judging when a body eclipses it. */
+const SUN_ANGULAR_RADIUS = 0.012;
+
+/** Camera shake under hard acceleration in flight: units/s² at which it starts and peaks. */
+const SHAKE_ACCELERATION: [number, number] = [6, 45];
+/** Peak shake, in radians. */
+const SHAKE_ANGLE = 0.0035;
+/** How often the speedometer is told the speed (ms). */
+const SPEED_REPORT_MS = 100;
+/** The near plane while flying: a fraction of the gap to the nearest surface, within limits. */
+// A fifth of the gap, so layers just above a surface (the Earth's clouds) are never clipped.
+const FLIGHT_NEAR = { fraction: 0.2, min: 0.003, max: 0.5 };
+const DEFAULT_NEAR = 0.5;
 
 /** Degrees per second. */
 const SPEED = {
@@ -186,7 +240,46 @@ export class SpaceScene {
   /** Carries the Moon's orbit, so the Moon turns with the backdrop too. */
   readonly #moonFrame = new Group();
   readonly #starMaterial: ShaderMaterial;
+  /** Procedural nebulae, baked once into a texture the sky shader adds to the Milky Way. */
+  readonly #nebula = new NebulaTexture();
+  /** Nebulae out in the solar system that the camera can fly through. */
+  readonly #nebulaClouds = new NebulaClouds();
+  /** Distant galaxies on the backdrop (follow the camera like the sky). */
+  readonly #galaxies = new Galaxies();
+  readonly #dust: SpaceDustUniforms = {
+    uCameraPos: { value: new Vector3() },
+    uVelocity: { value: new Vector3() },
+    uTime: { value: 0 },
+    uPointScale: { value: 1 },
+  };
+  /** Clock for aurorae, storms and film grain (stands still with reduced motion). */
+  readonly #effectsTime = { value: 0 };
+  /** 1 to allow flashing effects (storms), 0 with reduced motion. */
+  readonly #flashes = { value: 1 };
+  readonly #meteors = new Meteors(EARTH_RADIUS);
+  #post!: PostProcessing;
+  /** The camera's smoothed velocity and acceleration, from how it actually moved. */
+  readonly #lastCameraPosition = new Vector3();
+  #hasLastCameraPosition = false;
+  readonly #cameraVelocity = new Vector3();
+  readonly #previousVelocity = new Vector3();
+  #acceleration = 0;
+  #shake = 0;
+  readonly #shakeTurn = new Quaternion();
+  readonly #shakeEuler = new Euler();
+  readonly #unshaken = new Quaternion();
+  /** Adapted exposure, and how visible the Sun is (both eased over time). */
+  #exposure = EXPOSURE.base;
+  #sunVisibility = 0;
+  readonly #sunScreen = new Vector3();
+  readonly #forward = new Vector3();
+  readonly #speedListeners = new Set<(unitsPerSecond: number) => void>();
+  /** Resolves the "nebulae are baked" promise the first time they finish. */
+  #bakesDone: (() => void) | null = null;
+  #lastSpeedReport = -Infinity;
   readonly #earth: Mesh;
+  /** Drawn from its inside faces while the camera flies within it (see `#tick`). */
+  readonly #atmosphere: Mesh;
   readonly #clouds: Mesh;
   readonly #cloudMaterial: ShaderMaterial;
   readonly #earthMaterial: ShaderMaterial;
@@ -201,7 +294,7 @@ export class SpaceScene {
 
   readonly #scratch = new Vector3();
   /** The camera in its default (non-explore) pose, used to time the comet's orbit. */
-  readonly #viewProbe = new PerspectiveCamera(60, 1, 0.5, 3000);
+  readonly #viewProbe = new PerspectiveCamera(60, 1, 0.5, CAMERA_FAR);
   readonly #focusPoint = new Vector3();
   /** How far the user has panned the orbit centre away from the focused body. */
   readonly #pan = new Vector3();
@@ -215,7 +308,7 @@ export class SpaceScene {
    * camera (the "ship"); head tracking then moves it around inside.
    */
   readonly #vrRig = new Group();
-  readonly #vrCamera = new PerspectiveCamera(60, 1, 0.5, 3000);
+  readonly #vrCamera = new PerspectiveCamera(60, 1, 0.5, CAMERA_FAR);
   /** Whether this browser can show immersive VR; set once the check resolves. */
   #vrSupported = false;
 
@@ -270,7 +363,7 @@ export class SpaceScene {
     container.append(this.#renderer.domElement);
     void isVRSupported().then((supported) => (this.#vrSupported = supported));
 
-    this.#camera = new PerspectiveCamera(60, 1, 0.5, 3000);
+    this.#camera = new PerspectiveCamera(60, 1, 0.5, CAMERA_FAR);
     this.#camera.up.set(0, 0, 1);
     this.#camera.position.set(0, -MIN_DISTANCE, 0);
     this.#camera.lookAt(0, 0, 0);
@@ -308,7 +401,7 @@ export class SpaceScene {
 
     const skyMesh = new Mesh(
       new SphereGeometry(SKY_RADIUS, 64, 32),
-      createSkyMaterial(milkyWay, lighting),
+      createSkyMaterial(milkyWay, this.#nebula.texture, NEBULA_RANGE, lighting),
     );
     skyMesh.renderOrder = -2;
     skyMesh.frustumCulled = false;
@@ -354,12 +447,20 @@ export class SpaceScene {
     this.#clouds = new Mesh(new SphereGeometry(CLOUD_RADIUS, 128, 64), this.#cloudMaterial);
     this.#clouds.renderOrder = 1;
     this.#earth.add(this.#clouds);
+
+    // Aurorae and thunderstorms on the night side, riding with the clouds (and their UVs).
+    const nightShell = new Mesh(
+      new SphereGeometry(NIGHT_SHELL_RADIUS, 96, 48),
+      createEarthNightMaterial(earthTextures.clouds, lighting, this.#effectsTime, this.#flashes),
+    );
+    nightShell.renderOrder = 1.5;
+    this.#clouds.add(nightShell);
     earthTilt.add(this.#earth);
 
-    const atmosphere = new Mesh(
+    const atmosphere = (this.#atmosphere = new Mesh(
       new SphereGeometry(ATMOSPHERE_RADIUS, 96, 48),
       createAtmosphereMaterial(lighting, EARTH_RADIUS, ATMOSPHERE_RADIUS),
-    );
+    ));
     atmosphere.renderOrder = 2;
 
     /* ---------- Moon (tidally locked: the same face always points at the Earth) ---------- */
@@ -382,6 +483,9 @@ export class SpaceScene {
     /* ---------- Other planets, asteroid belt, comet ---------- */
     this.#solarSystem = createSolarSystem(load, lighting);
 
+    /* ---------- Dust drifting between the camera and everything else ---------- */
+    const [dust, dustStreaks] = this.#createDust(lighting);
+
     this.#vrRig.add(this.#vrCamera);
     this.#scene.add(
       this.#sky,
@@ -389,6 +493,11 @@ export class SpaceScene {
       atmosphere,
       this.#moonFrame,
       this.#solarSystem.group,
+      this.#nebulaClouds.group,
+      this.#galaxies.group,
+      this.#meteors.object,
+      dust,
+      dustStreaks,
       this.#vrRig,
     );
 
@@ -421,6 +530,8 @@ export class SpaceScene {
       this.#obstacles(),
     );
 
+    this.#post = new PostProcessing(this.#renderer, this.#scene, this.#camera);
+
     // Size to the container rather than the window, so mobile URL-bar changes don't thrash.
     this.#resizeObserver = new ResizeObserver(() => this.#resize());
     this.#resizeObserver.observe(container);
@@ -432,11 +543,20 @@ export class SpaceScene {
     this.#applyScrollView();
     this.#updateDynamicUniforms();
 
-    // Compile shaders in parallel with the downloads so the first frame doesn't hitch.
-    Promise.all([texturesLoaded, this.#renderer.compileAsync(this.#scene, this.#camera)])
+    // Compile shaders in parallel with the downloads so the first frame doesn't hitch. They're
+    // compiled for the HDR buffer the scene is drawn into (no tone mapping in the materials).
+    this.#renderer.setRenderTarget(this.#post.target);
+    const compiled = this.#renderer.compileAsync(this.#scene, this.#camera);
+    this.#renderer.setRenderTarget(null);
+    // The nebulae bake a strip per frame (see `#stepBakes`), so no GPU job runs long.
+    const baked = new Promise<void>((resolve) => (this.#bakesDone = resolve));
+    Promise.all([texturesLoaded, compiled, baked])
       .catch((error: unknown) => console.warn("Shader pre-compilation failed", error))
       .finally(() => {
         if (this.#disposed) return;
+        // Draw one full frame while the canvas is still hidden: this compiles the
+        // post-processing shaders, so the first frame anyone sees isn't a slow one.
+        this.#renderFrame();
         this.#ready = true;
         this.#needsRender = true;
         onReady?.();
@@ -542,6 +662,7 @@ export class SpaceScene {
     } else {
       this.exitVR();
       this.#flight.stop();
+      this.#setNear(DEFAULT_NEAR);
       // Orbit round a point just ahead, so the hand-over doesn't jump, then fly back.
       this.#flight.pointAhead(10, this.#controls.target);
       this.#controls.enabled = true;
@@ -684,6 +805,9 @@ export class SpaceScene {
       texture.dispose();
       if (texture.image instanceof ImageBitmap) texture.image.close();
     }
+    this.#nebula.dispose();
+    this.#nebulaClouds.dispose();
+    this.#post.dispose();
 
     this.#renderer.dispose();
     this.#renderer.forceContextLoss();
@@ -707,8 +831,159 @@ export class SpaceScene {
     return stars;
   }
 
+  #createDust(lighting: ReturnType<typeof createLightingUniforms>): [Points, LineSegments] {
+    const random = mulberry32(2718);
+    const positions = new Float32Array(DUST_COUNT * 3);
+    const randoms = new Float32Array(DUST_COUNT * 2);
+    for (let i = 0; i < positions.length; i++) positions[i] = random();
+    for (let i = 0; i < randoms.length; i++) randoms[i] = random();
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(positions, 3));
+    geometry.setAttribute("aRandom", new BufferAttribute(randoms, 2));
+
+    const earth = { value: new Vector4(0, 0, 0, EARTH_RADIUS) };
+    const dust = new Points(geometry, createSpaceDustMaterial(this.#dust, lighting, DUST, earth));
+    // Positions are wrapped around the camera in the shader, so the bounds mean nothing.
+    dust.frustumCulled = false;
+
+    // The same grains again as head/tail pairs, for streaks at speed.
+    const pairs = new Float32Array(DUST_COUNT * 6);
+    const pairRandoms = new Float32Array(DUST_COUNT * 4);
+    const ends = new Float32Array(DUST_COUNT * 2);
+    for (let i = 0; i < DUST_COUNT; i++) {
+      for (const end of [0, 1]) {
+        const v = i * 2 + end;
+        pairs.set(positions.subarray(i * 3, i * 3 + 3), v * 3);
+        pairRandoms.set(randoms.subarray(i * 2, i * 2 + 2), v * 2);
+        ends[v] = end;
+      }
+    }
+    const streakGeometry = new BufferGeometry();
+    streakGeometry.setAttribute("position", new BufferAttribute(pairs, 3));
+    streakGeometry.setAttribute("aRandom", new BufferAttribute(pairRandoms, 2));
+    streakGeometry.setAttribute("aEnd", new BufferAttribute(ends, 1));
+    const streaks = new LineSegments(
+      streakGeometry,
+      createDustStreakMaterial(this.#dust, lighting, DUST, earth),
+    );
+    streaks.frustumCulled = false;
+    return [dust, streaks];
+  }
+
+  /**
+   * Call `listener` with the flight speed (world units per second) a few times a second while
+   * flying. Returns a function that unsubscribes.
+   */
+  subscribeSpeed(listener: (unitsPerSecond: number) => void): () => void {
+    this.#speedListeners.add(listener);
+    return () => this.#speedListeners.delete(listener);
+  }
+
+  #setNear(near: number): void {
+    if (Math.abs(near - this.#camera.near) < 1e-4) return;
+    this.#camera.near = near;
+    this.#camera.updateProjectionMatrix();
+  }
+
+  /** Velocity and acceleration from how the camera actually moved, smoothed. */
+  #trackMotion(delta: number): void {
+    const position = this.#camera.position;
+    if (!this.#hasLastCameraPosition || delta <= 0) {
+      this.#lastCameraPosition.copy(position);
+      this.#hasLastCameraPosition = true;
+      return;
+    }
+    const step = this.#scratch.subVectors(position, this.#lastCameraPosition).divideScalar(delta);
+    this.#lastCameraPosition.copy(position);
+    // A jump (resetting the view, a big transition) isn't motion.
+    if (step.length() > 600 || this.#reducedMotion) step.set(0, 0, 0);
+
+    this.#previousVelocity.copy(this.#cameraVelocity);
+    this.#cameraVelocity.lerp(step, 1 - Math.exp(-12 * delta));
+    const acceleration = this.#previousVelocity.distanceTo(this.#cameraVelocity) / delta;
+    this.#acceleration = lerp(this.#acceleration, acceleration, 1 - Math.exp(-8 * delta));
+    this.#dust.uVelocity.value.copy(this.#cameraVelocity);
+  }
+
+  /**
+   * Where the Sun is on screen and how much of it shows (not behind the camera, nor eclipsed
+   * by a body), then the exposure the "eye" adapts towards. Eased, so nothing pops.
+   */
+  #updateSunAndExposure(delta: number): void {
+    const camera = this.#camera;
+    const sun = this.#sunDirection;
+    const forward = camera.getWorldDirection(this.#forward);
+    const facing = forward.dot(sun);
+
+    let visible = 0;
+    let x = 0.5;
+    let y = 0.5;
+    if (facing > 0) {
+      const ndc = this.#sunScreen.copy(camera.position).addScaledVector(sun, 1000).project(camera);
+      x = (ndc.x + 1) / 2;
+      y = (ndc.y + 1) / 2;
+      const edge = Math.max(Math.abs(ndc.x), Math.abs(ndc.y));
+      visible = 1 - MathUtils.smoothstep(edge, 0.95, 1.5);
+      // Eclipsed (fully or partly) by any body between the camera and the Sun.
+      for (const target of this.#obstacles()) {
+        const toBody = target.getPosition(this.#scratch).sub(camera.position);
+        const along = toBody.dot(sun);
+        if (along <= 0) continue;
+        const miss = toBody.addScaledVector(sun, -along).length() - target.radius;
+        const sunRadius = along * SUN_ANGULAR_RADIUS;
+        visible *= MathUtils.smoothstep(miss, -sunRadius, sunRadius);
+      }
+    }
+    const ease = 1 - Math.exp(-10 * delta);
+    this.#sunVisibility = delta > 0 ? lerp(this.#sunVisibility, visible, ease) : visible;
+    this.#post.setSun(x, y, this.#sunVisibility);
+
+    const glare = this.#sunVisibility * MathUtils.smoothstep(facing, 0.3, 1);
+    const away = MathUtils.smoothstep(-facing, 0.2, 0.9);
+    const target =
+      lerp(EXPOSURE.base, EXPOSURE.sunInView, glare) * lerp(1, EXPOSURE.awayFromSun, away);
+    const rate = target < this.#exposure ? EXPOSURE.darken : EXPOSURE.brighten;
+    this.#exposure = delta > 0 ? lerp(this.#exposure, target, 1 - Math.exp(-rate * delta)) : target;
+    if (Math.abs(this.#exposure - target) > 0.002) this.#needsRender = true;
+    this.#renderer.toneMappingExposure = this.#exposure;
+  }
+
+  /** A slight, fast shudder under hard acceleration in flight (never in VR or reduced motion). */
+  #applyShake(time: number): boolean {
+    const [start, peak] = SHAKE_ACCELERATION;
+    const target =
+      this.#flight.active && !this.#reducedMotion
+        ? MathUtils.smoothstep(this.#acceleration, start, peak)
+        : 0;
+    this.#shake = Math.max(target, this.#shake * 0.9);
+    if (this.#shake < 0.01) return false;
+    const t = time / 1000;
+    const amount = SHAKE_ANGLE * this.#shake;
+    this.#unshaken.copy(this.#camera.quaternion);
+    this.#shakeTurn.setFromEuler(
+      this.#shakeEuler.set(
+        amount * (Math.sin(t * 37) + 0.6 * Math.sin(t * 23.3 + 1)),
+        amount * (Math.sin(t * 31.7 + 2) + 0.6 * Math.sin(t * 19.1)),
+        amount * 0.5 * Math.sin(t * 27.9 + 4),
+      ),
+    );
+    this.#camera.quaternion.multiply(this.#shakeTurn);
+    return true;
+  }
+
   #bindEvents(): void {
     const { signal } = this.#abort;
+
+    // A lost context loses the baked nebulae with it; three.js restores everything else.
+    this.#renderer.domElement.addEventListener(
+      "webglcontextrestored",
+      () => {
+        this.#nebula.bake.restart();
+        this.#nebulaClouds.bake.restart();
+        this.#needsRender = true;
+      },
+      { signal },
+    );
 
     window.addEventListener("scroll", () => this.#updateScrollTarget(), { passive: true, signal });
     window.addEventListener("pointermove", (event) => this.#onPointerMove(event), {
@@ -784,7 +1059,10 @@ export class SpaceScene {
       (height * this.#renderer.getPixelRatio()) / (2 * Math.tan(degToRad(this.#camera.fov / 2))),
     );
     this.#renderer.setSize(width, height, false);
+    this.#post.setSize(width, height, this.#renderer.getPixelRatio());
     this.#starMaterial.uniforms.uPixelRatio!.value = this.#renderer.getPixelRatio();
+    this.#dust.uPointScale.value =
+      (height * this.#renderer.getPixelRatio()) / (2 * Math.tan(degToRad(this.#camera.fov / 2)));
     this.#perf = { time: 0, frames: 0 };
     this.#needsRender = true;
   }
@@ -952,7 +1230,45 @@ export class SpaceScene {
     return best?.id ?? null;
   }
 
+  /** Bake one strip of whichever nebula texture isn't finished yet. */
+  #stepBakes(): void {
+    const bake = [this.#nebula.bake, this.#nebulaClouds.bake].find((b) => !b.done);
+    if (!bake) {
+      this.#bakesDone?.();
+      this.#bakesDone = null;
+      return;
+    }
+    bake.step(this.#renderer);
+    this.#needsRender = true;
+  }
+
+  /** Draw the scene: straight to the headset in VR, otherwise through post-processing. */
+  #renderFrame(time = 0): void {
+    // Inside the atmosphere its outer faces point away from the camera; draw the inner ones.
+    // (The shader marches from the camera either way, so the result is the same.)
+    (this.#atmosphere.material as Material).side =
+      this.#camera.position.length() < ATMOSPHERE_RADIUS ? BackSide : FrontSide;
+    // The sky is infinitely far away: keep it centred on the camera.
+    this.#sky.position.copy(this.#camera.position);
+    this.#galaxies.group.position.copy(this.#camera.position);
+    this.#dust.uCameraPos.value.copy(this.#camera.position);
+    this.#updateDynamicUniforms();
+    if (this.#renderer.xr.isPresenting) {
+      this.#renderer.render(this.#scene, this.#vrCamera);
+      return;
+    }
+    const shaken = this.#applyShake(time);
+    this.#post.setTime(this.#effectsTime.value);
+    this.#post.render();
+    if (shaken) {
+      this.#camera.quaternion.copy(this.#unshaken);
+      // Keep rendering while a shake settles.
+      this.#needsRender = true;
+    }
+  }
+
   #tick(time: number): void {
+    this.#stepBakes();
     // Clamp delta so returning to a background tab doesn't cause a big jump.
     const delta = this.#lastTime === null ? 0 : Math.min((time - this.#lastTime) / 1000, 0.1);
     this.#lastTime = time;
@@ -965,6 +1281,10 @@ export class SpaceScene {
       this.#clouds.rotation.y += spin(SPEED.clouds);
       this.#moonPivot.rotation.z += spin(SPEED.moonOrbit);
       this.#solarSystem.update(delta);
+      this.#dust.uTime.value += delta;
+      this.#nebulaClouds.update(delta);
+      this.#effectsTime.value += delta;
+      this.#meteors.update(delta);
       this.#needsRender = true;
     }
 
@@ -987,6 +1307,8 @@ export class SpaceScene {
     this.#backdrop.multiplyQuaternions(this.#parallax, this.#drift);
     this.#sky.quaternion.multiplyQuaternions(this.#backdrop, this.#skyBase);
     this.#moonFrame.quaternion.copy(this.#backdrop);
+    this.#nebulaClouds.group.quaternion.copy(this.#backdrop);
+    this.#galaxies.group.quaternion.copy(this.#backdrop);
     // The comet's orbit also turns with the scroll orbit, so it stays in the camera's view.
     this.#cometFrame.multiplyQuaternions(this.#orbit, this.#parallax);
     this.#solarSystem.setOrientation(this.#backdrop, this.#cometFrame);
@@ -998,10 +1320,21 @@ export class SpaceScene {
       if (session)
         this.#flight.setVRInput(readVRInput(session.inputSources), this.#vrCamera.quaternion);
       this.#flight.update(delta);
+      // Let the camera get close to surfaces without slicing them.
+      const { fraction, min, max } = FLIGHT_NEAR;
+      this.#setNear(MathUtils.clamp(this.#flight.nearestGap * fraction, min, max));
       this.#needsRender = true;
+      if (time - this.#lastSpeedReport > SPEED_REPORT_MS) {
+        this.#lastSpeedReport = time;
+        for (const listener of this.#speedListeners) listener(this.#flight.speed);
+      }
     } else if (this.#exploring) {
       this.#updateExploreCamera(delta);
     }
+
+    this.#trackMotion(delta);
+    this.#flashes.value = this.#reducedMotion ? 0 : 1;
+    this.#updateSunAndExposure(delta);
 
     // A headset needs a new frame every time, for every movement of the head.
     if (vr) this.#needsRender = true;
@@ -1013,10 +1346,7 @@ export class SpaceScene {
     // In VR, the rig carries the headset along with the ship.
     if (vr) this.#vrRig.position.copy(this.#camera.position);
     if (vr) this.#vrRig.quaternion.copy(this.#camera.quaternion);
-    // The sky is infinitely far away: keep it centred on the camera.
-    this.#sky.position.copy(this.#camera.position);
-    this.#updateDynamicUniforms();
-    this.#renderer.render(this.#scene, vr ? this.#vrCamera : this.#camera);
+    this.#renderFrame(time);
 
     // The headset's frame rate and resolution aren't the page's to change.
     if (!vr && !this.#reducedMotion && delta > 0) this.#adaptQuality(delta);

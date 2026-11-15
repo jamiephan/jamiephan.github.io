@@ -1,4 +1,8 @@
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { formatScientific, toRealSpeed } from "../scene/units.ts";
+
+/** Subscribes to the flight speed (world units per second); returns an unsubscribe. */
+export type SpeedSubscription = (listener: (unitsPerSecond: number) => void) => () => void;
 
 interface FlightControlsProps {
   onRollLeft: (on: boolean) => void;
@@ -9,6 +13,7 @@ interface FlightControlsProps {
   onHintsHiddenChange: (hidden: boolean) => void;
   /** VR controls, where a headset is available. */
   vr: { active: boolean; enter: () => void; exit: () => void } | null;
+  subscribeSpeed: SpeedSubscription;
 }
 
 /**
@@ -23,6 +28,7 @@ export function FlightControls({
   hintsHidden,
   onHintsHiddenChange,
   vr,
+  subscribeSpeed,
 }: FlightControlsProps) {
   const endRef = useRef<HTMLButtonElement>(null);
   const hideRef = useRef<HTMLButtonElement>(null);
@@ -80,6 +86,8 @@ export function FlightControls({
           {vr.active ? "Exit VR" : "Enter VR"}
         </button>
       )}
+
+      <Speedometer subscribe={subscribeSpeed} />
 
       {/* The tips, or the (i) that brings them back, sit between the roll buttons. */}
       <div className="flight-controls__actions">
@@ -148,6 +156,47 @@ export function FlightControls({
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * Speed in light-years per hour, with km/s and the fraction of light speed underneath. It
+ * updates several times a second, so it writes to the DOM directly instead of re-rendering,
+ * and isn't a live region (a screen reader would never stop reading it).
+ */
+function Speedometer({ subscribe }: { subscribe: SpeedSubscription }) {
+  const valueRef = useRef<HTMLSpanElement>(null);
+  const detailRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(
+    () =>
+      subscribe((unitsPerSecond) => {
+        const { lightYearsPerHour, kmPerSecond, ofLight } = toRealSpeed(unitsPerSecond);
+        if (valueRef.current) valueRef.current.textContent = formatScientific(lightYearsPerHour);
+        if (detailRef.current) {
+          const km = Math.round(kmPerSecond).toLocaleString();
+          const c = ofLight < 0.001 ? "< 0.001" : ofLight.toFixed(3);
+          detailRef.current.textContent = `${km} km/s · ${c} c`;
+        }
+      }),
+    [subscribe],
+  );
+
+  return (
+    <p className="speedometer">
+      <span className="speedometer__label">Speed</span>
+      <span className="speedometer__reading">
+        <span ref={valueRef} className="speedometer__value">
+          0
+        </span>{" "}
+        <abbr className="speedometer__unit" title="light-years per hour">
+          ly/h
+        </abbr>
+      </span>
+      <span ref={detailRef} className="speedometer__detail">
+        0 km/s · &lt; 0.001 c
+      </span>
+    </p>
   );
 }
 

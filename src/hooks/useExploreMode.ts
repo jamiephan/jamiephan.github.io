@@ -19,12 +19,21 @@ interface ExploreModeOptions {
  * - Shift + Q: enter explore mode (or re-open the help dialog)
  * - R: reset the camera
  * - Esc: leave explore mode (or end flight mode, which is started from the toolbar)
+ *
+ * Flight goes fullscreen (where the browser allows it). Leaving fullscreen ends the flight,
+ * since the browser keeps Esc for itself while fullscreen.
  */
 export function useExploreMode({ onResetView }: ExploreModeOptions) {
   const [exploring, setExploring] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [flying, setFlying] = useState(false);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  /** Whether flight mode put the page into fullscreen (so it should take it out again). */
+  const fullscreenRef = useRef(false);
+  const flyingRef = useRef(false);
+  useEffect(() => {
+    flyingRef.current = flying;
+  }, [flying]);
 
   const enter = useCallback(() => {
     if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
@@ -43,8 +52,39 @@ export function useExploreMode({ onResetView }: ExploreModeOptions) {
   const startFlight = useCallback(() => {
     setHelpOpen(false);
     setFlying(true);
+    // Must happen right here, in the click: browsers only allow fullscreen from a gesture.
+    const root = document.documentElement;
+    if (!document.fullscreenElement && root.requestFullscreen) {
+      root
+        .requestFullscreen({ navigationUI: "hide" })
+        .then(() => {
+          // The flight may already be over by the time the browser switches.
+          if (flyingRef.current) fullscreenRef.current = true;
+          else document.exitFullscreen().catch(() => {});
+        })
+        .catch(() => {});
+    }
   }, []);
   const endFlight = useCallback(() => setFlying(false), []);
+
+  // Leave fullscreen when the flight ends, if it was the flight that entered it.
+  useEffect(() => {
+    if (flying || !fullscreenRef.current) return;
+    fullscreenRef.current = false;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }, [flying]);
+
+  // Esc while fullscreen only leaves fullscreen (the page never sees it): end the flight too.
+  useEffect(() => {
+    if (!flying) return;
+    const onChange = () => {
+      if (document.fullscreenElement || !fullscreenRef.current) return;
+      fullscreenRef.current = false;
+      setFlying(false);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, [flying]);
 
   // Restore focus to wherever the user was before exploring.
   useEffect(() => {

@@ -65,6 +65,11 @@ export function App() {
   const exitVR = useCallback(() => backgroundRef.current?.exitVR(), []);
   const rollLeft = useCallback((on: boolean) => backgroundRef.current?.setRoll(-1, on), []);
   const rollRight = useCallback((on: boolean) => backgroundRef.current?.setRoll(1, on), []);
+  const subscribeSpeed = useCallback(
+    (listener: (unitsPerSecond: number) => void) =>
+      backgroundRef.current?.subscribeSpeed(listener) ?? (() => {}),
+    [],
+  );
   // Leaving explore mode puts the Sun back (the scene does the same), so the slider starts
   // from the default next time.
   const [wasExploring, setWasExploring] = useState(exploring);
@@ -134,6 +139,7 @@ export function App() {
           hintsHidden={flightHintsHidden}
           onHintsHiddenChange={setFlightHintsHidden}
           vr={vrSupported ? { active: inVR, enter: enterVR, exit: exitVR } : null}
+          subscribeSpeed={subscribeSpeed}
         />
       )}
       {exploring && !helpOpen && !flying && (

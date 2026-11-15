@@ -5,6 +5,7 @@
  * the Sun). Shadows between bodies (eclipses, ring shadows) are computed analytically against
  * spheres and planes, so there are no shadow maps or extra render passes.
  */
+import { NOISE } from "./nebula.ts";
 import {
   AdditiveBlending,
   BackSide,
@@ -589,11 +590,18 @@ export const createRingMaterial = (
  * Milky Way panorama plus the Sun's disc and glare. Rendered on a sphere that follows the
  * camera; texture lookups use the sphere's local (rotating) direction, the Sun its world one.
  */
-export const createSkyMaterial = (milkyWay: Texture, lighting: LightingUniforms): ShaderMaterial =>
+export const createSkyMaterial = (
+  milkyWay: Texture,
+  nebula: Texture,
+  nebulaRange: number,
+  lighting: LightingUniforms,
+): ShaderMaterial =>
   new ShaderMaterial({
     uniforms: {
       ...lighting,
       uMilkyWay: { value: milkyWay },
+      uNebula: { value: nebula },
+      uNebulaRange: { value: nebulaRange },
       uExposure: { value: 2.6 },
       uSunAngularRadius: { value: 0.012 },
     },
@@ -614,6 +622,8 @@ export const createSkyMaterial = (milkyWay: Texture, lighting: LightingUniforms)
       varying vec3 vLocalDir;
       varying vec3 vWorldDir;
       uniform sampler2D uMilkyWay;
+      uniform sampler2D uNebula;
+      uniform float uNebulaRange;
       uniform float uExposure;
       uniform float uSunAngularRadius;
       uniform vec3 uSunDir;
@@ -625,6 +635,9 @@ export const createSkyMaterial = (milkyWay: Texture, lighting: LightingUniforms)
         vec3 galaxy = texture2D(uMilkyWay, uv).rgb;
         // Lift the faint nebulosity a touch more than the background so the band reads.
         galaxy = galaxy * uExposure * (1.0 + 1.5 * smoothstep(0.0, 0.08, lum(galaxy)));
+        // Baked nebulae (stored square-rooted; see nebula.ts).
+        vec3 nebula = texture2D(uNebula, uv).rgb;
+        galaxy += nebula * nebula * uNebulaRange;
 
         vec3 dir = normalize(vWorldDir);
         float angle = acos(clamp(dot(dir, uSunDir), -1.0, 1.0));
@@ -680,21 +693,45 @@ export const createStarMaterial = (lighting: LightingUniforms): ShaderMaterial =
  * ------------------------------------------------------------------------------------------- */
 
 /** Instanced, flat-shaded rocks lit by the Sun. Per-instance tint comes from `instanceColor`. */
-export const createAsteroidMaterial = (lighting: LightingUniforms): ShaderMaterial =>
+export const createAsteroidMaterial = (
+  lighting: LightingUniforms,
+  time: { value: number },
+): ShaderMaterial =>
   new ShaderMaterial({
-    uniforms: { ...lighting },
+    uniforms: { ...lighting, uTime: time },
     vertexShader: /* glsl */ `
+      uniform float uTime;
       varying vec3 vNormal;
       varying vec3 vTint;
+
+      // Rotation about a unit axis (Rodrigues).
+      mat3 rotation(vec3 axis, float angle) {
+        float c = cos(angle);
+        float s = sin(angle);
+        vec3 a = axis * (1.0 - c);
+        return mat3(
+          a.x * axis.x + c, a.y * axis.x + s * axis.z, a.z * axis.x - s * axis.y,
+          a.x * axis.y - s * axis.z, a.y * axis.y + c, a.z * axis.y + s * axis.x,
+          a.x * axis.z + s * axis.y, a.y * axis.z - s * axis.x, a.z * axis.z + c);
+      }
+
       void main() {
+        // Each rock tumbles about its own axis at its own rate, seeded by where it sits.
+        vec3 seed = fract(instanceMatrix[3].xyz * vec3(0.1031, 0.1137, 0.0973));
+        seed += dot(seed, seed.yzx + 33.33);
+        seed = fract((seed.xxy + seed.yzz) * seed.zyx);
+        vec3 axis = normalize(seed - 0.5 + 1e-3);
+        float rate = mix(0.05, 0.7, seed.x) * (seed.y > 0.5 ? 1.0 : -1.0);
+        mat3 spin = rotation(axis, uTime * rate);
+
         mat4 model = modelMatrix * instanceMatrix;
-        vNormal = normalize(mat3(model) * normal);
+        vNormal = normalize(mat3(model) * (spin * normal));
         #ifdef USE_INSTANCING_COLOR
           vTint = instanceColor;
         #else
           vTint = vec3(0.4);
         #endif
-        gl_Position = projectionMatrix * viewMatrix * model * vec4(position, 1.0);
+        gl_Position = projectionMatrix * viewMatrix * model * vec4(spin * position, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -768,7 +805,13 @@ export const createCometTailMaterial = (
         float length = uLength * (0.35 + 0.65 * uActivity);
         vec3 spine = uHead + (uAxis * s + uCurve * s * s) * length;
         vec3 tangent = normalize(uAxis + 2.0 * s * uCurve);
-        vec3 side = normalize(cross(tangent, normalize(cameraPosition - spine)));
+        // Seen straight down the tail the cross product vanishes; any perpendicular will do.
+        vec3 across = cross(tangent, normalize(cameraPosition - spine));
+        // ("length" is a local variable here, hiding the built-in function.)
+        float acrossLength = sqrt(dot(across, across));
+        vec3 side = acrossLength > 1e-5
+          ? across / acrossLength
+          : normalize(cross(tangent, abs(tangent.z) < 0.9 ? vec3(0, 0, 1) : vec3(1, 0, 0)));
         float halfWidth = uWidth * (0.08 + 0.92 * sqrt(s));
         vTail = aTail;
         gl_Position = projectionMatrix * viewMatrix * vec4(spine + side * aTail.y * halfWidth, 1.0);
@@ -785,10 +828,11 @@ export const createCometTailMaterial = (
       void main() {
         float s = vTail.x;
         float across = exp(-vTail.y * vTail.y * 4.0);
-        float along = pow(1.0 - s, 1.6) * smoothstep(0.0, 0.04, s);
+        // Clamped: interpolation can push s a hair past 1, and pow() of a negative is NaN.
+        float along = pow(max(1.0 - s, 0.0), 1.6) * smoothstep(0.0, 0.04, s);
         // Slowly shifting streamers that grow out of the smooth coma.
         float wave = sin(vTail.y * 23.0 + s * 9.0 - uTime * 0.3) * sin(vTail.y * 7.0 - uTime * 0.11);
-        float rays = 1.0 + uStreamers * wave * smoothstep(0.05, 0.4, s);
+        float rays = max(1.0 + uStreamers * wave * smoothstep(0.05, 0.4, s), 0.0);
         gl_FragColor = vec4(uColor * uIntensity * uActivity * across * along * rays, 1.0);
         ${OUTPUT}
       }
@@ -961,6 +1005,257 @@ export const createCometDustMaterial = (
         vec2 c = gl_PointCoord - 0.5;
         float falloff = exp(-dot(c, c) * 14.0);
         gl_FragColor = vec4(uColor * uIntensity * vBrightness * falloff, 1.0);
+        ${OUTPUT}
+      }
+    `,
+  });
+
+/* ---------------------------------------------------------------------------------------------
+ * Interplanetary dust
+ * ------------------------------------------------------------------------------------------- */
+
+export interface SpaceDustUniforms {
+  uCameraPos: { value: Vector3 };
+  /** The camera's velocity (world units per second), for motion streaks. */
+  uVelocity: { value: Vector3 };
+  uTime: { value: number };
+  /** Device pixels per world unit at distance 1. */
+  uPointScale: { value: number };
+}
+
+export interface SpaceDustOptions {
+  boxSize: number;
+  size: number;
+  intensity: number;
+  drift: Vector3;
+  /** Seconds of travel each streak spans, and the speeds over which streaks fade in. */
+  streakTime: number;
+  streakSpeeds: [number, number];
+}
+
+/** Shared by the dots and the streaks: where a grain is, and how much sunlight it scatters. */
+const DUST_VERTEX_COMMON = /* glsl */ `
+  ${COMMON}
+  uniform vec3 uCameraPos;
+  uniform float uTime;
+  uniform float uBoxSize;
+  uniform float uIntensity;
+  uniform vec3 uDrift;
+  uniform vec3 uSunDir;
+  uniform vec3 uSunColor;
+  uniform vec4 uEarth;
+
+  // Wrap a grain into the box centred on the camera; returns its offset from the camera.
+  vec3 dustOffset(vec3 unitPosition) {
+    return mod(unitPosition * uBoxSize + uDrift * uTime - uCameraPos, uBoxSize) - 0.5 * uBoxSize;
+  }
+
+  // Sunlight scattered towards the camera, faded near the box edge (where grains wrap) and
+  // right in front of the lens.
+  vec3 dustLight(vec3 offset) {
+    float dist = length(offset);
+    float fade = (1.0 - smoothstep(0.3 * uBoxSize, 0.5 * uBoxSize, dist)) * smoothstep(0.6, 2.5, dist);
+    // Henyey–Greenstein forward scattering (g = 0.6), plus a little back-scatter.
+    float cosTheta = dot(offset / max(dist, 1e-3), uSunDir);
+    float g = 0.6;
+    float phase = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * cosTheta, 1.5) + 0.3;
+    float shadow = sphereShadow(uCameraPos + offset, uSunDir, uEarth);
+    return uSunColor * vec3(1.0, 0.93, 0.85) * uIntensity * phase * shadow * fade;
+  }
+`;
+
+const dustUniforms = (
+  dust: SpaceDustUniforms,
+  lighting: LightingUniforms,
+  { boxSize, size, intensity, drift, streakTime, streakSpeeds }: SpaceDustOptions,
+  earth: { value: Vector4 },
+) => ({
+  ...lighting,
+  ...dust,
+  uEarth: earth,
+  uBoxSize: { value: boxSize },
+  uSize: { value: size },
+  uIntensity: { value: intensity },
+  uDrift: { value: drift },
+  uStreakTime: { value: streakTime },
+  uStreakSpeeds: { value: new Vector2(...streakSpeeds) },
+});
+
+/**
+ * Faint, sunlit motes in a box that wraps around the camera, so there is always dust nearby
+ * wherever it flies. They give the empty space depth: parallax as the camera moves, and a
+ * sense of speed in flight. Grains scatter mostly forwards, so they glow looking towards the
+ * Sun, and the Earth's shadow darkens them. `position` holds each grain's place in a unit cube.
+ */
+export const createSpaceDustMaterial = (
+  dust: SpaceDustUniforms,
+  lighting: LightingUniforms,
+  options: SpaceDustOptions,
+  earth: { value: Vector4 },
+): ShaderMaterial =>
+  new ShaderMaterial({
+    uniforms: dustUniforms(dust, lighting, options, earth),
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    vertexShader: /* glsl */ `
+      ${DUST_VERTEX_COMMON}
+      attribute vec2 aRandom; // size, brightness — 0..1
+      uniform float uPointScale;
+      uniform float uSize;
+      uniform vec3 uVelocity;
+      uniform vec2 uStreakSpeeds;
+      varying vec3 vColor;
+
+      void main() {
+        vec3 offset = dustOffset(position);
+        vec4 view = viewMatrix * vec4(uCameraPos + offset, 1.0);
+        gl_Position = projectionMatrix * view;
+
+        // Keep total light constant when a grain is smaller than a pixel, so they don't sparkle.
+        float pixels = uSize * mix(0.5, 1.5, aRandom.x) * uPointScale / max(-view.z, 1e-3);
+        gl_PointSize = clamp(pixels, 1.0, 3.0);
+        float coverage = min(1.0, (pixels * pixels) / (gl_PointSize * gl_PointSize));
+        // At speed the light is smeared into a streak instead (see the streak material).
+        float streaking = smoothstep(uStreakSpeeds.x, uStreakSpeeds.y, length(uVelocity));
+
+        vColor = dustLight(offset) * coverage * mix(0.3, 1.0, aRandom.y) * (1.0 - 0.7 * streaking);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vColor;
+      void main() {
+        vec2 c = gl_PointCoord - 0.5;
+        float falloff = exp(-dot(c, c) * 16.0);
+        if (falloff < 0.02) discard;
+        gl_FragColor = vec4(vColor * falloff, 1.0);
+        ${OUTPUT}
+      }
+    `,
+  });
+
+/**
+ * The same grains drawn as short lines trailing behind the camera's motion, fading in only at
+ * high speed: the streaks that sell velocity in flight. Each grain has two vertices (`aEnd`
+ * 0 = head, 1 = tail) sharing one position.
+ */
+export const createDustStreakMaterial = (
+  dust: SpaceDustUniforms,
+  lighting: LightingUniforms,
+  options: SpaceDustOptions,
+  earth: { value: Vector4 },
+): ShaderMaterial =>
+  new ShaderMaterial({
+    uniforms: dustUniforms(dust, lighting, options, earth),
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    vertexShader: /* glsl */ `
+      ${DUST_VERTEX_COMMON}
+      attribute float aEnd;
+      attribute vec2 aRandom;
+      uniform vec3 uVelocity;
+      uniform float uStreakTime;
+      uniform vec2 uStreakSpeeds;
+      varying vec3 vColor;
+
+      void main() {
+        vec3 head = dustOffset(position);
+        // The tail is where the grain appeared to be a moment ago, relative to the camera.
+        vec3 offset = head + uVelocity * uStreakTime * aEnd;
+        gl_Position = projectionMatrix * viewMatrix * vec4(uCameraPos + offset, 1.0);
+
+        float streaking = smoothstep(uStreakSpeeds.x, uStreakSpeeds.y, length(uVelocity));
+        vColor = dustLight(head) * streaking * (1.0 - aEnd) * 3.0 * mix(0.3, 1.0, aRandom.y);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec3 vColor;
+      void main() {
+        gl_FragColor = vec4(vColor, 1.0);
+        ${OUTPUT}
+      }
+    `,
+  });
+
+/* ---------------------------------------------------------------------------------------------
+ * Earth's night side: aurorae and thunderstorms
+ * ------------------------------------------------------------------------------------------- */
+
+/**
+ * A thin additive shell just above the clouds (a child of the cloud mesh, so it shares their
+ * UVs). On the night side it shows auroral ovals around the magnetic poles, rippling slowly,
+ * and scattered thunderstorms flickering inside the cloud tops.
+ */
+export const createEarthNightMaterial = (
+  clouds: Texture,
+  lighting: LightingUniforms,
+  time: { value: number },
+  flashes: { value: number },
+): ShaderMaterial =>
+  new ShaderMaterial({
+    uniforms: { ...lighting, uClouds: { value: clouds }, uTime: time, uFlashes: flashes },
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    vertexShader: SPHERE_VERTEX,
+    fragmentShader: /* glsl */ `
+      ${COMMON}
+      ${SPHERE_VARYINGS}
+      ${NOISE}
+      uniform sampler2D uClouds;
+      uniform vec3 uSunDir;
+      uniform float uTime;
+      uniform float uFlashes;
+
+      // Glow of one auroral oval around \`pole\` (object space), ~20° from it.
+      vec3 aurora(vec3 n, vec3 pole, float seed) {
+        float theta = acos(clamp(dot(n, pole), -1.0, 1.0));
+        vec3 east = normalize(cross(pole, abs(pole.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 0, 1)));
+        float lon = atan(dot(n, cross(pole, east)), dot(n, east));
+        // The oval wobbles and pulses slowly.
+        float centre = 0.34 + 0.035 * sin(lon * 3.0 + uTime * 0.07 + seed)
+          + 0.02 * (fbm(vec3(lon * 2.0, uTime * 0.05, seed)) - 0.5);
+        float offset = (theta - centre) / 0.035;
+        float band = exp(-offset * offset);
+        if (band < 0.01) return vec3(0.0);
+        // Vertical curtains: fine streaks along the oval that drift and brighten.
+        float curtains = smoothstep(0.35, 0.8, fbm(vec3(lon * 14.0, uTime * 0.12, seed * 3.0)));
+        // Green oxygen glow, with red/purple at the poleward edge where the curtains are tallest.
+        float poleward = smoothstep(0.0, -0.05, theta - centre);
+        vec3 colour = mix(vec3(0.15, 1.0, 0.45), vec3(0.75, 0.2, 0.55), poleward * 0.6);
+        return colour * band * (0.25 + curtains);
+      }
+
+      void main() {
+        vec3 N = normalize(vWorldNormal);
+        float night = smoothstep(0.05, -0.2, dot(N, uSunDir));
+        if (night <= 0.0) discard;
+        vec3 n = normalize(vObjNormal);
+        vec3 V = normalize(cameraPosition - vWorldPos);
+        // Curtains seen edge-on near the limb look brighter.
+        float limb = 0.5 + 1.5 * pow(1.0 - abs(dot(N, V)), 2.0);
+
+        vec3 light = (aurora(n, normalize(vec3(0.08, 1.0, 0.05)), 1.7)
+          + aurora(n, normalize(vec3(-0.1, -1.0, 0.07)), 5.3)) * limb * 0.22;
+
+        // Thunderstorms: a sparse grid of cells in the tropics, each flashing now and then.
+        vec2 grid = vec2(72.0, 36.0);
+        vec2 cell = floor(vUv * grid);
+        float h = hash(vec3(cell, 3.7));
+        float tropics = 1.0 - smoothstep(0.35, 0.6, abs(n.y));
+        if (h < 0.22 && tropics > 0.0 && uFlashes > 0.0) {
+          float period = 3.0 + 9.0 * hash(vec3(cell, 9.1));
+          float t = mod(uTime + h * 97.0, period);
+          float flash = exp(-t * 9.0) * (0.6 + 0.4 * cos(t * 40.0));
+          vec2 jitter = vec2(hash(vec3(cell, 1.3)), hash(vec3(cell, 2.9))) - 0.5;
+          vec2 local = fract(vUv * grid) - 0.5 - jitter * 0.5;
+          float blob = exp(-dot(local, local) * 18.0);
+          float cloud = texture2D(uClouds, vUv).r;
+          light += vec3(0.75, 0.82, 1.0) * flash * blob * cloud * tropics * 2.5 * uFlashes;
+        }
+
+        gl_FragColor = vec4(light * night, 1.0);
         ${OUTPUT}
       }
     `,

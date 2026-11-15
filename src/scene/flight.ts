@@ -16,9 +16,21 @@ import type { VRInput } from "./xr.ts";
 /** Units per second² of thrust, and how quickly speed bleeds off (per second). */
 /** How quickly speed bleeds off when not thrusting (per second). */
 const DRAG = 0.8;
-/** Top speeds in units per second (the Earth is 8 units across). */
+/** Top speeds in units per second (the Earth is 8 units across) in open space. */
 const CRUISE_SPEED = 20;
 const BOOST_SPEED = 80;
+/**
+ * Speed scales with the gap to the nearest surface, like the throttle of a ship in a space
+ * sim: crawling near a planet so it towers overhead, racing across the empty space between.
+ * Top speed is multiplied by gap / SPEED_GAP, clamped to this range.
+ */
+const SPEED_GAP = 40;
+// Near a surface the ship crawls (~30 km/s cruising low over the Earth), so planets feel
+// enormous; far from everything it can outrun light (~2.5 c on boost).
+const MIN_SPEED_SCALE = 0.001;
+const MAX_SPEED_SCALE = 6;
+/** How fast excess speed bleeds off when the limit drops (per second), so you can't crash. */
+const OVERSPEED_DRAG = 3;
 /** Radians of turn per pixel of mouse movement or drag. */
 const MOUSE_SENSITIVITY = 0.0025;
 const TOUCH_SENSITIVITY = 0.005;
@@ -29,14 +41,16 @@ const KEY_TURN_RATE = 1.2;
 const ROLL_RATE = 1.6;
 /** The VR turn stick, at full deflection (radians per second). */
 const VR_TURN_RATE = 1.5;
-/** Stay within this distance of the Earth, so the solar system can't be lost. */
-const MAX_RANGE = 1000;
+/** Stay within this distance of the Earth: far enough to reach the nebulae, not to get lost. */
+export const MAX_RANGE = 3000;
 /**
- * Keep this far above a body's surface: a fraction of its radius, but never less than a fixed
- * gap, so the camera's near plane (0.5) can't slice into small bodies like the Moon.
+ * Keep this far above a body's surface: a fraction of its radius (just clear of the Earth's
+ * atmosphere), but never less than a fixed gap. The scene shrinks the camera's near plane as
+ * the ship gets close (see `nearestGap`), so surfaces never get sliced.
  */
-const CLEARANCE = 0.15;
-const MIN_GAP = 1;
+// ~64 km above the Earth: inside its atmosphere, but above the cloud layer (~38 km).
+const CLEARANCE = 0.01;
+const MIN_GAP = 0.012;
 
 /**
  * How far along the path `from` → `to` (0–1) it first enters the sphere, or null if it doesn't.
@@ -145,6 +159,10 @@ export class FlightController {
   #vr: { input: VRInput; gaze: Quaternion } | null = null;
 
   #active = false;
+  /** Whether this flight wants the mouse captured (not where VR needs it free). */
+  #wantsLock = false;
+  /** Distance to the nearest body's surface, as of the last update. */
+  #nearestGap = Infinity;
   #abort: AbortController | null = null;
   /** Fingers held on the scene (touch): holding anywhere boosts. */
   readonly #touches = new Set<number>();
@@ -186,6 +204,16 @@ export class FlightController {
     return this.#active;
   }
 
+  /** Current speed, in world units per second. */
+  get speed(): number {
+    return this.#active ? this.#velocity.length() : 0;
+  }
+
+  /** Distance from the camera to the nearest body's surface (world units). */
+  get nearestGap(): number {
+    return this.#nearestGap;
+  }
+
   /**
    * Take over the camera from where it is now, facing the same way. The mouse is captured
    * straight away where allowed (this runs from a click), unless `lockPointer` is false.
@@ -197,7 +225,8 @@ export class FlightController {
     this.#velocity.set(0, 0, 0);
     this.#device = null;
     this.#bind();
-    if (lockPointer && matchMedia("(pointer: fine)").matches) this.#lockPointer();
+    this.#wantsLock = lockPointer && matchMedia("(pointer: fine)").matches;
+    if (this.#wantsLock) this.#lockPointer();
   }
 
   /** Steer with VR controllers and the headset instead of the mouse or phone. */
@@ -285,17 +314,35 @@ export class FlightController {
     const thrust = this.#thrust.copy(forward).multiplyScalar(ahead).addScaledVector(right, side);
     if (thrust.lengthSq() > 1) thrust.normalize();
     // Thrust balances drag exactly at top speed: a = v·drag.
-    thrust.multiplyScalar((boosting ? BOOST_SPEED : CRUISE_SPEED) * DRAG);
+    this.#nearestGap = this.#gapAt(this.#camera.position);
+    const scale = MathUtils.clamp(this.#nearestGap / SPEED_GAP, MIN_SPEED_SCALE, MAX_SPEED_SCALE);
+    const topSpeed = (boosting ? BOOST_SPEED : CRUISE_SPEED) * scale;
+    thrust.multiplyScalar(topSpeed * DRAG);
 
     // Thrust against drag: speed settles at a top speed instead of growing forever.
     const velocity = this.#velocity.addScaledVector(thrust, delta);
     velocity.multiplyScalar(Math.exp(-DRAG * delta));
+    // Approaching a body lowers the limit; shed the excess quickly but smoothly.
+    const limit = BOOST_SPEED * scale;
+    const speed = velocity.length();
+    if (speed > limit) {
+      velocity.multiplyScalar(Math.max(limit / speed, Math.exp(-OVERSPEED_DRAG * delta)));
+    }
 
     const from = this.#from.copy(this.#camera.position);
     const position = this.#camera.position.addScaledVector(velocity, delta);
     this.#keepClear(from, position);
 
     this.#camera.quaternion.copy(this.#orientation);
+  }
+
+  /** Distance from `point` to the nearest body's surface. */
+  #gapAt(point: Vector3): number {
+    let gap = Infinity;
+    for (const { radius, getPosition } of this.#obstacles()) {
+      gap = Math.min(gap, getPosition(this.#scratch).distanceTo(point) - radius);
+    }
+    return Math.max(0, gap);
   }
 
   /** Straight ahead (cameras look down their local −z). */
@@ -454,6 +501,18 @@ export class FlightController {
     window.addEventListener("deviceorientation", (event) => this.#onDeviceOrientation(event), {
       signal,
     });
+
+    // Going fullscreen can use up the click that started the flight, so the first attempt
+    // at capturing the mouse may have failed; try again once fullscreen is in place.
+    document.addEventListener(
+      "fullscreenchange",
+      () => {
+        if (this.#wantsLock && !this.#vr && document.fullscreenElement) {
+          if (document.pointerLockElement !== canvas) this.#lockPointer();
+        }
+      },
+      { signal },
+    );
   }
 
   /** Point the phone to look around: the view turns exactly as the phone does. */

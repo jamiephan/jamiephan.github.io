@@ -966,6 +966,50 @@ main {
   min-inline-size: 0;
 }
 
+/* Flight speed, centred above the tips. Tabular figures so the digits don't jitter. */
+.speedometer {
+  display: grid;
+  justify-items: center;
+  gap: 0.1rem;
+  /* Wide enough for the longest reading, so the box doesn't resize as the number changes. */
+  min-inline-size: 15rem;
+  margin: 0;
+  padding: 0.45rem 1.1rem 0.5rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  background: rgb(7 9 26 / 0.6);
+  border: 1px solid var(--color-panel-border);
+  border-radius: var(--radius);
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.speedometer__label {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.speedometer__reading {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  color: var(--color-cyan);
+}
+
+.speedometer__unit {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.speedometer__detail {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
 /* Pinned to the top-right corner: "Flight mode" while exploring, "End flight" while flying. */
 .corner-button {
   position: fixed;

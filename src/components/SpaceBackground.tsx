@@ -13,6 +13,8 @@ export interface SpaceBackgroundHandle {
   /** Start VR (from a click or tap) / end it. Only while flying. */
   enterVR: () => void;
   exitVR: () => void;
+  /** Flight speed updates (world units per second); returns an unsubscribe. */
+  subscribeSpeed: (listener: (unitsPerSecond: number) => void) => () => void;
 }
 
 interface SpaceBackgroundProps {
@@ -111,6 +113,7 @@ export function SpaceBackground({
           .catch((error: unknown) => console.warn("Couldn't start VR", error));
       },
       exitVR: () => sceneRef.current?.exitVR(),
+      subscribeSpeed: (listener) => sceneRef.current?.subscribeSpeed(listener) ?? (() => {}),
     }),
     [],
   );

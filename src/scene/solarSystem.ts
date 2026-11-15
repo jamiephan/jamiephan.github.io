@@ -303,7 +303,9 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     });
   }
 
-  const belt = createAsteroidBelt(lighting);
+  /** Drives each rock's tumble. */
+  const beltTime = { value: 0 };
+  const belt = createAsteroidBelt(lighting, beltTime);
   const comet = createComet(lighting);
   group.add(belt, comet.group);
 
@@ -332,6 +334,7 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
       for (const { mesh, speed } of spinners) mesh.rotation.y += degToRad(speed * seconds);
       // The belt's local +Y is its normal; revolve it in its own plane.
       belt.rotateY(degToRad(BELT.speed * seconds));
+      beltTime.value += seconds;
       comet.advance(seconds);
     },
     setOrientation,
@@ -356,11 +359,14 @@ const createRockGeometry = (): BufferGeometry => {
   return geometry;
 };
 
-const createAsteroidBelt = (lighting: LightingUniforms): InstancedMesh => {
+const createAsteroidBelt = (
+  lighting: LightingUniforms,
+  beltTime: { value: number },
+): InstancedMesh => {
   const random = mulberry32(2024);
   const belt = new InstancedMesh(
     createRockGeometry(),
-    createAsteroidMaterial(lighting),
+    createAsteroidMaterial(lighting, beltTime),
     BELT.count,
   );
   const dummy = new Object3D();
