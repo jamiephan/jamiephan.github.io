@@ -9,10 +9,14 @@ export interface SpaceBackgroundHandle {
   stopZoom: () => void;
   zoomStep: (direction: 1 | -1) => void;
   setSunAngle: (degrees: number) => void;
+  setBoost: (on: boolean) => void;
+  setRoll: (direction: -1 | 1, on: boolean) => void;
 }
 
 interface SpaceBackgroundProps {
   exploring: boolean;
+  /** Free flight; only takes effect while exploring. */
+  flying: boolean;
   /** Called when the scene changes focus itself (a planet was tapped, or the view was reset). */
   onFocusChange?: (id: BodyId) => void;
   ref?: Ref<SpaceBackgroundHandle>;
@@ -24,7 +28,7 @@ type Status = "loading" | "ready" | "unsupported";
  * Decorative 3D background. Three.js is loaded lazily after hydration so it never blocks
  * the page content; a CSS gradient is shown until it's ready (or if WebGL is unavailable).
  */
-export function SpaceBackground({ exploring, onFocusChange, ref }: SpaceBackgroundProps) {
+export function SpaceBackground({ exploring, flying, onFocusChange, ref }: SpaceBackgroundProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SpaceScene | null>(null);
   const exploringRef = useRef(exploring);
@@ -71,6 +75,11 @@ export function SpaceBackground({ exploring, onFocusChange, ref }: SpaceBackgrou
     sceneRef.current?.setExploring(exploring);
   }, [exploring]);
 
+  // After the exploring effect, so flight never starts before explore mode has.
+  useEffect(() => {
+    sceneRef.current?.setFlying(flying);
+  }, [flying]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -80,6 +89,8 @@ export function SpaceBackground({ exploring, onFocusChange, ref }: SpaceBackgrou
       stopZoom: () => sceneRef.current?.stopZoom(),
       zoomStep: (direction) => sceneRef.current?.zoomStep(direction),
       setSunAngle: (degrees) => sceneRef.current?.setSunAngle(degrees),
+      setBoost: (on) => sceneRef.current?.setBoost(on),
+      setRoll: (direction, on) => sceneRef.current?.setRoll(direction, on),
     }),
     [],
   );

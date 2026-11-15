@@ -45,6 +45,7 @@ import {
 } from "./materials.ts";
 import { degToRad, lerp, perFrameAt60, scrollProgress } from "./math.ts";
 import { DEFAULT_BODY, type BodyId } from "./bodies.ts";
+import { FlightController, type Obstacle } from "./flight.ts";
 import { createSolarSystem, type FocusTarget, type SolarSystem } from "./solarSystem.ts";
 import { previewFor } from "./textures.ts";
 import { generateStarfield } from "./stars.ts";
@@ -211,6 +212,8 @@ export class SpaceScene {
 
   #disposed = false;
   #exploring = false;
+  /** Free flight (only reachable from explore mode). */
+  readonly #flight: FlightController;
   #reducedMotion = this.#reducedMotionQuery.matches;
   /** Scroll progress (0–1) the camera is showing, easing towards the page's actual progress. */
   #progress = 0;
@@ -375,6 +378,10 @@ export class SpaceScene {
     // Wheel, pinch or drag takes over from any zoom-button easing still in progress.
     this.#controls.addEventListener("start", () => (this.#zoomGoal = null));
 
+    this.#flight = new FlightController(this.#camera, this.#renderer.domElement, () =>
+      this.#obstacles(),
+    );
+
     // Size to the container rather than the window, so mobile URL-bar changes don't thrash.
     this.#resizeObserver = new ResizeObserver(() => this.#resize());
     this.#resizeObserver.observe(container);
@@ -427,6 +434,7 @@ export class SpaceScene {
       this.#controls.connect(this.#renderer.domElement);
       this.#controls.enabled = true;
     } else {
+      this.#flight.stop();
       this.#controls.enabled = false;
       this.#controls.disconnect();
       this.#controls.reset();
@@ -446,6 +454,44 @@ export class SpaceScene {
       this.#applyScrollView();
     }
     this.#needsRender = true;
+  }
+
+  /**
+   * Start or stop free flight. Starting takes over the camera where it is; stopping hands it
+   * back to the orbit controls and flies back to the Earth.
+   */
+  setFlying(flying: boolean): void {
+    if (!this.#exploring || flying === this.#flight.active) return;
+    this.#tap = null;
+    this.#zoom = null;
+    this.#zoomGoal = null;
+    this.#transition = null;
+    if (flying) {
+      this.#loadDetail();
+      this.#controls.enabled = false;
+      this.#flight.start();
+    } else {
+      this.#flight.stop();
+      // Orbit round a point just ahead, so the hand-over doesn't jump, then fly home.
+      this.#flight.pointAhead(10, this.#controls.target);
+      this.#controls.enabled = true;
+      this.resetView();
+    }
+    this.#needsRender = true;
+  }
+
+  /** On-screen flight buttons (touch devices). */
+  setBoost(on: boolean): void {
+    this.#flight.setBoost(on);
+  }
+
+  setRoll(direction: -1 | 1, on: boolean): void {
+    this.#flight.setRoll(direction, on);
+  }
+
+  /** Bodies to steer round while flying (the comet is just gas and dust). */
+  *#obstacles(): Iterable<Obstacle> {
+    for (const [id, target] of this.#targets) if (id !== "comet") yield target;
   }
 
   /**
@@ -512,6 +558,7 @@ export class SpaceScene {
     this.#renderer.setAnimationLoop(null);
     this.#abort.abort();
     this.#resizeObserver.disconnect();
+    this.#flight.stop();
     this.#controls.dispose();
 
     this.#scene.traverse((object: Object3D) => {
@@ -565,7 +612,7 @@ export class SpaceScene {
       (event) => {
         // A second finger means pinch, not tap.
         this.#tap =
-          this.#exploring && event.isPrimary
+          this.#exploring && !this.#flight.active && event.isPrimary
             ? { id: event.pointerId, x: event.clientX, y: event.clientY, time: event.timeStamp }
             : null;
       },
@@ -828,7 +875,12 @@ export class SpaceScene {
     this.#cometFrame.multiplyQuaternions(this.#orbit, this.#parallax);
     this.#solarSystem.setOrientation(this.#backdrop, this.#cometFrame);
 
-    if (this.#exploring) this.#updateExploreCamera(delta);
+    if (this.#flight.active) {
+      this.#flight.update(delta);
+      this.#needsRender = true;
+    } else if (this.#exploring) {
+      this.#updateExploreCamera(delta);
+    }
 
     if (!this.#needsRender || !this.#ready) return;
     this.#needsRender = false;

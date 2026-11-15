@@ -2,12 +2,25 @@ import { useCallback, useMemo, useRef, useState, type MouseEvent } from "react";
 import { ContentSection } from "./components/ContentSection.tsx";
 import { ExploreDialog } from "./components/ExploreDialog.tsx";
 import { ExploreToolbar, type ZoomControls } from "./components/ExploreToolbar.tsx";
+import { FlightControls } from "./components/FlightControls.tsx";
 import { SpaceBackground, type SpaceBackgroundHandle } from "./components/SpaceBackground.tsx";
 import { sections, site } from "./content.tsx";
 import { useExploreMode } from "./hooks/useExploreMode.ts";
 import { DEFAULT_BODY, type BodyId } from "./scene/bodies.ts";
 
 const firstSection = sections[0]?.id ?? "";
+
+/**
+ * iOS only reports device tilt after the visitor allows it, and the request must come straight
+ * from a tap. Elsewhere this does nothing. If it's refused, dragging still steers.
+ */
+const requestTiltPermission = (): void => {
+  if (typeof DeviceOrientationEvent === "undefined") return;
+  const { requestPermission } = DeviceOrientationEvent as unknown as {
+    requestPermission?: () => Promise<string>;
+  };
+  requestPermission?.call(DeviceOrientationEvent).catch(() => {});
+};
 
 /**
  * Scroll to the first section without adding `#about` to the URL, so a refresh starts at the
@@ -34,9 +47,15 @@ export function App() {
     backgroundRef.current?.resetView();
     moveSun(0);
   }, [moveSun]);
-  const { exploring, helpOpen, enter, exit, openHelp, closeHelp } = useExploreMode({
-    onResetView: resetView,
-  });
+  const { exploring, helpOpen, flying, enter, exit, openHelp, closeHelp, startFlight, endFlight } =
+    useExploreMode({ onResetView: resetView });
+  const beginFlight = useCallback(() => {
+    requestTiltPermission();
+    startFlight();
+  }, [startFlight]);
+  const setBoost = useCallback((on: boolean) => backgroundRef.current?.setBoost(on), []);
+  const rollLeft = useCallback((on: boolean) => backgroundRef.current?.setRoll(-1, on), []);
+  const rollRight = useCallback((on: boolean) => backgroundRef.current?.setRoll(1, on), []);
   // Leaving explore mode puts the Sun back (the scene does the same), so the slider starts
   // from the default next time.
   const [wasExploring, setWasExploring] = useState(exploring);
@@ -60,7 +79,12 @@ export function App() {
 
   return (
     <>
-      <SpaceBackground ref={backgroundRef} exploring={exploring} onFocusChange={setFocused} />
+      <SpaceBackground
+        ref={backgroundRef}
+        exploring={exploring}
+        flying={flying}
+        onFocusChange={setFocused}
+      />
 
       <div className="page" inert={exploring}>
         <header className="hero">
@@ -92,8 +116,16 @@ export function App() {
         </footer>
       </div>
 
-      <ExploreDialog open={helpOpen} onClose={closeHelp} />
-      {exploring && !helpOpen && (
+      <ExploreDialog open={helpOpen} onClose={closeHelp} onStartFlight={beginFlight} />
+      {flying && (
+        <FlightControls
+          onBoost={setBoost}
+          onRollLeft={rollLeft}
+          onRollRight={rollRight}
+          onEnd={endFlight}
+        />
+      )}
+      {exploring && !helpOpen && !flying && (
         <ExploreToolbar
           focused={focused}
           onFocus={focus}

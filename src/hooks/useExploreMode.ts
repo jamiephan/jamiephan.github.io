@@ -18,11 +18,12 @@ interface ExploreModeOptions {
  *
  * - Shift + Q: enter explore mode (or re-open the help dialog)
  * - R: reset the camera
- * - Esc: leave explore mode
+ * - Esc: leave explore mode (or end flight mode, which is started from the help dialog)
  */
 export function useExploreMode({ onResetView }: ExploreModeOptions) {
   const [exploring, setExploring] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [flying, setFlying] = useState(false);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
   const enter = useCallback(() => {
@@ -36,7 +37,14 @@ export function useExploreMode({ onResetView }: ExploreModeOptions) {
   const exit = useCallback(() => {
     setExploring(false);
     setHelpOpen(false);
+    setFlying(false);
   }, []);
+
+  const startFlight = useCallback(() => {
+    setHelpOpen(false);
+    setFlying(true);
+  }, []);
+  const endFlight = useCallback(() => setFlying(false), []);
 
   // Restore focus to wherever the user was before exploring.
   useEffect(() => {
@@ -50,6 +58,15 @@ export function useExploreMode({ onResetView }: ExploreModeOptions) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || event.ctrlKey || event.metaKey || isEditable(event.target)) return;
       const key = event.key.toLowerCase();
+
+      // While flying, the keyboard drives the ship; only Esc does anything here.
+      if (flying) {
+        if (key === "escape") {
+          event.preventDefault();
+          setFlying(false);
+        }
+        return;
+      }
 
       if (event.shiftKey && !event.altKey && key === "q") {
         event.preventDefault();
@@ -73,13 +90,16 @@ export function useExploreMode({ onResetView }: ExploreModeOptions) {
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [exploring, helpOpen, enter, exit, onResetView]);
+  }, [exploring, helpOpen, flying, enter, exit, onResetView]);
 
   return {
     exploring,
     helpOpen,
+    flying,
     enter,
     exit,
+    startFlight,
+    endFlight,
     openHelp: useCallback(() => setHelpOpen(true), []),
     closeHelp: useCallback(() => setHelpOpen(false), []),
   };

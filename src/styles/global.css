@@ -759,6 +759,16 @@ main {
     0 2rem 4rem rgb(0 0 0 / 0.6),
     0 0 4rem -1rem rgb(100 130 255 / 0.5);
 
+  /*
+   * On short screens only the controls list scrolls: the heading and buttons stay put, so the
+   * dialog never looks cut off part-way down. (Only when open, so the UA can still hide it.)
+   */
+  &[open] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
   &:modal {
     overscroll-behavior: contain;
   }
@@ -790,13 +800,30 @@ main {
 
   & form {
     display: flex;
-    justify-content: flex-end;
+    /* When the buttons don't fit side by side, stack them with the main action on top. */
+    flex-wrap: wrap-reverse;
+    gap: 0.5rem;
+  }
+
+  /* Share the row, or each take the full width once stacked. */
+  & form .button {
+    flex: 1 1 10rem;
   }
 }
 
 .explore-dialog__controls {
   display: grid;
+  /* Rows keep their height; the list scrolls instead of squashing them. */
+  grid-auto-rows: max-content;
   gap: 0.4rem;
+  /* The part of the dialog that gives way (and scrolls) when the screen is short. */
+  flex: 0 1 auto;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  /* Keep right-aligned text clear of a scrollbar when there is one. */
+  padding-inline-end: 0.25rem;
 
   & > div {
     display: flex;
@@ -813,6 +840,109 @@ main {
 
   & dd {
     color: var(--color-muted);
+  }
+}
+
+/* ---------- Flight mode ---------- */
+.flight-controls {
+  position: fixed;
+  inset-inline: 0;
+  inset-block-end: 0;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  padding-block-end: max(1rem, env(safe-area-inset-bottom, 0px));
+  padding-inline: max(0.75rem, env(safe-area-inset-left, 0px))
+    max(0.75rem, env(safe-area-inset-right, 0px));
+  /* Drags on the empty parts reach the canvas, which steers. */
+  pointer-events: none;
+
+  & > * {
+    pointer-events: auto;
+  }
+}
+
+.flight-controls__hint {
+  margin: 0;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+  text-align: center;
+  color: var(--color-muted);
+  background: rgb(7 9 26 / 0.6);
+  border: 1px solid var(--color-panel-border);
+  border-radius: 999px;
+}
+
+.flight-controls__end {
+  position: fixed;
+  inset-block-start: max(1rem, env(safe-area-inset-top, 0px));
+  inset-inline-end: max(1rem, env(safe-area-inset-right, 0px));
+}
+
+/* Touch: ↺ [ Boost ] ↻, with Boost taking the space between the roll buttons. */
+.flight-controls__actions {
+  display: flex;
+  gap: 0.6rem;
+  inline-size: min(28rem, 100%);
+
+  & .button {
+    min-block-size: var(--target-size);
+    touch-action: manipulation;
+  }
+}
+
+/* Big thumb-sized hold buttons, without text selection or the long-press menu. */
+.flight-controls__hold {
+  min-inline-size: 6.5rem;
+  min-block-size: 3.5rem;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+
+  &:active {
+    color: var(--color-on-accent);
+    background: linear-gradient(110deg, var(--color-cyan), var(--color-violet));
+  }
+}
+
+.flight-controls__boost {
+  flex: 1;
+}
+
+/* Round, icon-only roll buttons either side of Boost. */
+.flight-controls__roll {
+  flex: none;
+  min-inline-size: 3.5rem;
+  padding: 0;
+  font-size: 1.6rem;
+  line-height: 1;
+  border-radius: 50%;
+}
+
+/* Show the hint and buttons for the input the device has. */
+.flight-controls__hint--touch,
+.flight-controls__touch {
+  display: none;
+}
+
+@media (any-pointer: coarse) {
+  .flight-controls__hint--touch,
+  .flight-controls__touch {
+    display: revert;
+  }
+}
+
+/* Without touch the bottom row is empty: drop it rather than leave a gap. */
+@media not (any-pointer: coarse) {
+  .flight-controls__actions {
+    display: none;
+  }
+}
+
+@media not (pointer: fine) {
+  .flight-controls__hint--keyboard {
+    display: none;
   }
 }
 

@@ -3,6 +3,8 @@ import { useEffect, useId, useRef } from "react";
 interface ExploreDialogProps {
   open: boolean;
   onClose: () => void;
+  /** Flight mode is only offered here, as a little extra for those who read the controls. */
+  onStartFlight: () => void;
 }
 
 const controls: [action: string, how: string][] = [
@@ -15,7 +17,7 @@ const controls: [action: string, how: string][] = [
   ["Return to the page", "Esc"],
 ];
 
-export function ExploreDialog({ open, onClose }: ExploreDialogProps) {
+export function ExploreDialog({ open, onClose, onStartFlight }: ExploreDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -41,6 +43,9 @@ export function ExploreDialog({ open, onClose }: ExploreDialogProps) {
         ))}
       </dl>
       <form method="dialog">
+        <button type="button" className="button" onClick={onStartFlight}>
+          <span aria-hidden="true">🚀</span> Flight mode
+        </button>
         <button type="submit" className="button button--primary" autoFocus>
           Start exploring
         </button>
