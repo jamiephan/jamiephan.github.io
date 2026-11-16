@@ -272,45 +272,6 @@ kbd {
   }
 }
 
-.hero__scroll {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5em;
-  min-block-size: 2.75rem;
-  margin-block-start: 2rem;
-  padding: 0.4rem 1.1rem;
-  font-size: 1rem;
-  font-weight: 600;
-  text-decoration: none;
-  background: rgb(7 9 26 / 0.6);
-  border: 1px solid rgb(127 249 255 / 0.4);
-  border-radius: 999px;
-  box-shadow: inset 0 0 1rem rgb(127 249 255 / 0.08);
-  transition:
-    color 150ms,
-    border-color 150ms,
-    box-shadow 150ms;
-
-  &:hover {
-    border-color: var(--color-cyan);
-    box-shadow:
-      inset 0 0 1rem rgb(127 249 255 / 0.15),
-      var(--glow-cyan);
-  }
-
-  @media (prefers-reduced-motion: no-preference) {
-    & span {
-      animation: drift-down 2.4s ease-in-out infinite;
-    }
-  }
-}
-
-@keyframes drift-down {
-  50% {
-    translate: 0 0.2em;
-  }
-}
-
 main {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -327,9 +288,9 @@ main {
   padding-block: 3rem;
   scroll-margin-block-start: 1rem;
 
-  /* Focused only by script (see "Scroll to explore"); it isn't interactive, so no ring. */
-  &:focus {
-    outline: none;
+  /* The footer sits close under the last panel. */
+  &:last-child {
+    padding-block-end: 0;
   }
 }
 
@@ -502,7 +463,7 @@ main {
   display: grid;
   justify-items: center;
   gap: 1rem;
-  padding: 6rem var(--gutter) max(3rem, env(safe-area-inset-bottom));
+  padding: 1.5rem var(--gutter) max(3rem, env(safe-area-inset-bottom));
   text-align: center;
   font-size: 1.125rem;
 }

@@ -9,14 +9,7 @@ export function ContentSection({ section, align }: ContentSectionProps) {
   const titleId = `${section.id}-title`;
 
   return (
-    <section
-      id={section.id}
-      className="section"
-      data-align={align}
-      aria-labelledby={titleId}
-      // Focusable from script only, so "Scroll to explore" can move focus here.
-      tabIndex={-1}
-    >
+    <section id={section.id} className="section" data-align={align} aria-labelledby={titleId}>
       <div className="panel">
         <h2 id={titleId}>{section.title}</h2>
         <SectionBody section={section} />

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ContentSection } from "./components/ContentSection.tsx";
 import { ExploreDialog } from "./components/ExploreDialog.tsx";
 import { ExploreToolbar, type ZoomControls } from "./components/ExploreToolbar.tsx";
@@ -11,8 +11,6 @@ import { useSmoothSnap } from "./hooks/useSmoothSnap.ts";
 import { useVRSupported } from "./hooks/useVRSupported.ts";
 import { DEFAULT_BODY, type BodyId } from "./scene/bodies.ts";
 
-const firstSection = sections[0]?.id ?? "";
-
 /**
  * iOS only reports device tilt after the visitor allows it, and the request must come straight
  * from a tap. Elsewhere this does nothing. If it's refused, dragging still steers.
@@ -23,20 +21,6 @@ const requestTiltPermission = (): void => {
     requestPermission?: () => Promise<string>;
   };
   requestPermission?.call(DeviceOrientationEvent).catch(() => {});
-};
-
-/**
- * Scroll to the first section without adding `#about` to the URL, so a refresh starts at the
- * top again. The `href` stays as a fallback before the page has hydrated.
- */
-const scrollToContent = (event: MouseEvent<HTMLAnchorElement>) => {
-  const target = document.getElementById(firstSection);
-  if (!target) return;
-  event.preventDefault();
-  // Smooth or instant follows the CSS `scroll-behavior`, which respects reduced motion.
-  target.scrollIntoView();
-  // Move keyboard and screen reader focus along with the scroll, like a normal in-page link.
-  target.focus({ preventScroll: true });
 };
 
 export function App() {
@@ -130,9 +114,6 @@ export function App() {
             <span className="hero__name">{site.name}</span>
           </h1>
           <p className="hero__tagline">{site.tagline}</p>
-          <a className="hero__scroll" href={`#${firstSection}`} onClick={scrollToContent}>
-            Scroll to explore <span aria-hidden="true">↓</span>
-          </a>
         </header>
 
         <main>
