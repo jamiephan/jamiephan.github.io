@@ -1,6 +1,8 @@
 import { Box2, MathUtils, Mesh, ShaderMaterial, Texture, Vector2, Vector3, Vector4 } from "three";
-import type { ImageBitmapLoader, Object3D, WebGLRenderer } from "three";
+import type { Object3D, WebGLRenderer } from "three";
 import type { BodyId } from "./bodies.ts";
+import type { DecodedImage, ImageDecoder } from "./imageDecoder.ts";
+import type { TexturePool } from "./texturePool.ts";
 
 /**
  * Ultra-HD level of detail: 16K versions of the globe maps, for flying low over a surface or
@@ -10,6 +12,11 @@ import type { BodyId } from "./bodies.ts";
  * `ultraFor` in `textures.ts`) and only a window of them around the point being looked at is
  * put together on the GPU, then laid over the usual map in the shader (`ultraTexture` in
  * `shaders/chunks/ultra.glsl`). The window follows the view, a tile at a time.
+ *
+ * Window textures come from a pool (allocating a 4K texture stalls a frame for 13-27 ms), so
+ * once a map has had two, moving its window allocates nothing. Tiles are decoded off the main
+ * thread. A window fades in when it first appears and out when it's no longer needed, rather
+ * than popping.
  */
 
 /** The full map: 16384×8192 in 1024² tiles. */
@@ -20,12 +27,19 @@ export const ULTRA_ROWS = 8;
 export const WINDOW_TILES = 4;
 /** Tile copies to the GPU per frame (4 MB each). */
 const TILES_PER_FRAME = 1;
+/** Seconds for a window to fade in when it first appears, or out when it's dropped. */
+export const ULTRA_FADE_SECONDS = 0.5;
 
 /** Shader uniforms for one map's window; shared by every material sampling that map. */
 export interface UltraUniforms {
   map: { value: Texture | null };
   /** u0, v0, width, height of the window in texture coordinates; width 0 = no window. */
   rect: { value: Vector4 };
+  /**
+   * x: extra blur on the usual map, in mip levels (an HD map easing in or out; see
+   * `hdTextures.ts`). y: how strongly the window shows, 0-1 (fading in or out).
+   */
+  blend: { value: Vector2 };
 }
 
 const uniformsByTexture = new WeakMap<Texture, UltraUniforms>();
@@ -33,7 +47,11 @@ const uniformsByTexture = new WeakMap<Texture, UltraUniforms>();
 const uniformsFor = (texture: Texture): UltraUniforms => {
   let uniforms = uniformsByTexture.get(texture);
   if (!uniforms) {
-    uniforms = { map: { value: null }, rect: { value: new Vector4() } };
+    uniforms = {
+      map: { value: null },
+      rect: { value: new Vector4() },
+      blend: { value: new Vector2(0, 1) },
+    };
     uniformsByTexture.set(texture, uniforms);
   }
   return uniforms;
@@ -41,15 +59,22 @@ const uniformsFor = (texture: Texture): UltraUniforms => {
 
 /**
  * The ultra uniforms to put next to a map's own uniform `name` (`${name}Ultra`,
- * `${name}UltraRect`), as `ultraTexture` in the shader expects them.
+ * `${name}UltraRect`, `${name}Blend`), as `ultraTexture` in the shader expects them.
  */
 export const ultraUniforms = (
   name: string,
   texture: Texture,
 ): Record<string, { value: unknown }> => {
   const uniforms = uniformsFor(texture);
-  return { [`${name}Ultra`]: uniforms.map, [`${name}UltraRect`]: uniforms.rect };
+  return {
+    [`${name}Ultra`]: uniforms.map,
+    [`${name}UltraRect`]: uniforms.rect,
+    [`${name}Blend`]: uniforms.blend,
+  };
 };
+
+/** The blend uniform of a map (see `UltraUniforms`), shared with its HD level. */
+export const blendUniformFor = (texture: Texture): { value: Vector2 } => uniformsFor(texture).blend;
 
 /**
  * Texture coordinates of a direction from a globe's centre, in its own frame: the mapping
@@ -105,7 +130,7 @@ interface Tile {
   col: number;
   row: number;
   /** Decoded, waiting to be copied in. */
-  image: ImageBitmap | null;
+  image: DecodedImage | null;
   done: boolean;
 }
 
@@ -130,6 +155,8 @@ interface Entry {
   frame: Object3D | null;
   shown: Window | null;
   build: Build | null;
+  /** Fading the shown window in (1) or out (0), if it's on its way. */
+  fadeTo: 0 | 1 | null;
 }
 
 /**
@@ -142,7 +169,8 @@ export class UltraTextures {
   readonly #entries: Entry[] = [];
   readonly #enabled: boolean;
   readonly #renderer: WebGLRenderer;
-  readonly #createLoader: () => ImageBitmapLoader;
+  readonly #decoder: ImageDecoder;
+  readonly #pool: TexturePool;
   readonly #onChange: () => void;
   readonly #region = new Box2();
   readonly #position = new Vector2();
@@ -158,12 +186,14 @@ export class UltraTextures {
   constructor(
     enabled: boolean,
     renderer: WebGLRenderer,
-    createLoader: () => ImageBitmapLoader,
+    decoder: ImageDecoder,
+    pool: TexturePool,
     onChange: () => void,
   ) {
     this.#enabled = enabled;
     this.#renderer = renderer;
-    this.#createLoader = createLoader;
+    this.#decoder = decoder;
+    this.#pool = pool;
     this.#onChange = onChange;
   }
 
@@ -181,6 +211,7 @@ export class UltraTextures {
       frame: null,
       shown: null,
       build: null,
+      fadeTo: null,
     });
   }
 
@@ -212,9 +243,14 @@ export class UltraTextures {
       this.#active = body;
       for (const entry of this.#entries) if (entry.body !== body) this.#release(entry);
     }
-    if (!body || !point) return;
+    if (!body || !point) {
+      for (const entry of this.#entries) this.#release(entry);
+      return;
+    }
     for (const entry of this.#entries) {
       if (entry.body !== body || !entry.frame) continue;
+      // Was fading out: bring it back.
+      if (entry.shown && entry.fadeTo === 0) entry.fadeTo = 1;
       const local = entry.frame.worldToLocal(this.#local.copy(point));
       if (local.lengthSq() === 0) continue;
       const target = entry.build ?? entry.shown;
@@ -229,8 +265,12 @@ export class UltraTextures {
     }
   }
 
-  /** Copy the next tile(s) of a window being built to the GPU; called once a frame. */
-  step(): void {
+  /**
+   * Once a frame: ease fades, and copy the next tile(s) of a window being built to the GPU.
+   * @param seconds Time since the last frame.
+   */
+  step(seconds: number): void {
+    for (const entry of this.#entries) this.#stepFade(entry, seconds);
     let budget = TILES_PER_FRAME;
     for (const entry of this.#entries) {
       const build = entry.build;
@@ -250,6 +290,7 @@ export class UltraTextures {
       this.#cancelBuild(entry);
       entry.shown?.texture.dispose();
       entry.shown = null;
+      entry.fadeTo = null;
     }
   }
 
@@ -276,13 +317,11 @@ export class UltraTextures {
       if (this.#shownPosition(entry, tile)) continue;
       // Files count rows from the top (north); the texture from the bottom.
       const url = `${entry.url}${tile.col}-${ULTRA_ROWS - 1 - tile.row}.webp`;
-      this.#createLoader().load(
-        url,
+      this.#decoder.decode(url).then(
         (image) => {
-          if (entry.build !== build) image.close(); // moved on meanwhile
+          if (entry.build !== build || this.#disposed) image.close(); // moved on meanwhile
           else tile.image = image;
         },
-        undefined,
         () => console.warn(`Failed to load texture: ${url}`),
       );
     }
@@ -317,10 +356,7 @@ export class UltraTextures {
         destination,
       );
     } else if (tile.image) {
-      const source = new Texture(tile.image);
-      source.flipY = false; // the loader already flips the bitmap
-      this.#renderer.copyTextureToTexture(source, build.texture, null, destination);
-      source.dispose();
+      this.#renderer.copyTextureToTexture(tile.image.source, build.texture, null, destination);
       tile.image.close();
       tile.image = null;
     }
@@ -331,7 +367,13 @@ export class UltraTextures {
 
   #finish(entry: Entry, build: Build): void {
     entry.build = null;
-    entry.shown?.texture.dispose();
+    // A window replacing another shows the same texels where they overlap, so it swaps in
+    // as is; the first one fades in over the usual map.
+    if (entry.shown) this.#pool.release(entry.shown.texture);
+    else {
+      entry.uniforms.blend.value.y = 0;
+      entry.fadeTo = 1;
+    }
     entry.shown = { col: build.col, row: build.row, texture: build.texture };
     entry.uniforms.map.value = build.texture;
     entry.uniforms.rect.value.set(
@@ -345,17 +387,20 @@ export class UltraTextures {
 
   /** An empty window texture, sampled the same way as the usual map. */
   #createTarget(entry: Entry): Texture {
-    const usual = entry.texture;
-    const size = WINDOW_TILES * ULTRA_TILE;
-    const target = new Texture({ width: size, height: size });
-    target.colorSpace = usual.colorSpace;
-    target.anisotropy = usual.anisotropy;
-    target.flipY = false;
-    // Allocate GPU storage without uploading anything; the tiles fill it in.
-    target.source.dataReady = false;
+    const target = this.#pool.acquire(() => {
+      const usual = entry.texture;
+      const size = WINDOW_TILES * ULTRA_TILE;
+      const texture = new Texture({ width: size, height: size });
+      texture.colorSpace = usual.colorSpace;
+      texture.anisotropy = usual.anisotropy;
+      texture.flipY = false;
+      // Allocate GPU storage without uploading anything; the tiles fill it in.
+      texture.source.dataReady = false;
+      texture.needsUpdate = true;
+      return texture;
+    });
     // Mipmaps are built once, after the last tile.
     target.mipmapsAutoUpdate = false;
-    target.needsUpdate = true;
     return target;
   }
 
@@ -364,16 +409,34 @@ export class UltraTextures {
     if (!build) return;
     entry.build = null;
     for (const tile of build.tiles) tile.image?.close();
-    build.texture.dispose();
+    this.#pool.release(build.texture);
   }
 
+  /** No longer needed: stop building, and fade the window out before dropping it. */
   #release(entry: Entry): void {
     this.#cancelBuild(entry);
+    if (entry.shown && entry.fadeTo !== 0) entry.fadeTo = 0;
+  }
+
+  #stepFade(entry: Entry, seconds: number): void {
+    const to = entry.fadeTo;
+    if (to === null) return;
+    const blend = entry.uniforms.blend.value;
+    const step = seconds / ULTRA_FADE_SECONDS;
+    blend.y = to === 1 ? Math.min(1, blend.y + step) : Math.max(0, blend.y - step);
+    this.#onChange();
+    if (blend.y !== to) return;
+    entry.fadeTo = null;
+    if (to === 0) this.#drop(entry);
+  }
+
+  #drop(entry: Entry): void {
     if (!entry.shown) return;
-    entry.shown.texture.dispose();
+    this.#pool.release(entry.shown.texture);
     entry.shown = null;
     entry.uniforms.map.value = null;
     entry.uniforms.rect.value.set(0, 0, 0, 0);
+    entry.uniforms.blend.value.y = 1;
     this.#onChange();
   }
 }

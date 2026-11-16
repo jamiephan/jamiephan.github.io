@@ -1,6 +1,7 @@
 uniform sampler2D uMap;
 uniform sampler2D uMapUltra;
 uniform vec4 uMapUltraRect;
+uniform vec2 uMapBlend;
 uniform float uBump;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
@@ -10,7 +11,7 @@ uniform vec3 uRim;
 
 void main() {
   computeSphereUv();
-  vec3 albedo = ultraTexture(uMap, uMapUltra, uMapUltraRect, vec2(0.0)).rgb;
+  vec3 albedo = ultraTexture(uMap, uMapUltra, uMapUltraRect, uMapBlend, vec2(0.0)).rgb;
 
   // Bump from the albedo's luminance gradient: craters and ridges catch the light.
   // The relief is tuned for a 2K map, so on an HD map it's taken from the mipmap level that is

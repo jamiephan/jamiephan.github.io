@@ -6,8 +6,9 @@
  * 3. Up-to-8K HD maps for the one body being looked at up close (`hd`, see `hdTextures.ts`).
  * 4. 16K maps streamed a window of tiles at a time (`ultra`, see `ultraTextures.ts`).
  *
- * Images are decoded to bitmaps off the main thread. Once the scene is showing they go to the
- * GPU one per frame (`step`), so swapping in a whole set doesn't stall a frame.
+ * Images are decoded off the main thread. Once the scene is showing they go to the GPU one per
+ * frame (`step`), so swapping in a whole set doesn't stall a frame. The HD and ultra levels
+ * stream theirs in strips and tiles, into GPU textures they reuse (see `texturePool.ts`).
  */
 import {
   ImageBitmapLoader,
@@ -24,6 +25,8 @@ import {
 
 import type { BodyId } from "./bodies.ts";
 import { HdTextures, replaceImage } from "./hdTextures.ts";
+import { ImageDecoder } from "./imageDecoder.ts";
+import { TexturePool } from "./texturePool.ts";
 import { hdFor, previewFor, ultraFor } from "./textures.ts";
 import { UltraTextures } from "./ultraTextures.ts";
 
@@ -65,6 +68,10 @@ export class SceneTextures {
   readonly hd: HdTextures;
   /** 16K maps, a window of tiles at a time, for the body flown or zoomed right up to. */
   readonly ultra: UltraTextures;
+  /** Decodes HD maps and ultra tiles to raw pixels in workers. */
+  readonly #decoder = new ImageDecoder();
+  /** HD and ultra textures, kept for reuse: allocating them is what stalls a frame. */
+  readonly #pool = new TexturePool();
 
   readonly #renderer: WebGLRenderer;
   readonly #root: Object3D;
@@ -109,7 +116,8 @@ export class SceneTextures {
     this.hd = new HdTextures(
       this.#hdCapable,
       renderer,
-      () => createImageLoader(),
+      this.#decoder,
+      this.#pool,
       (from, to) => this.#swap(from, to),
       onChange,
     );
@@ -117,7 +125,8 @@ export class SceneTextures {
     this.ultra = new UltraTextures(
       this.#hdCapable && (memory ?? 0) >= ULTRA_MIN_DEVICE_MEMORY_GB,
       renderer,
-      () => createImageLoader(),
+      this.#decoder,
+      this.#pool,
       onChange,
     );
   }
@@ -173,16 +182,20 @@ export class SceneTextures {
     this.#pendingDetail = [];
   }
 
-  /** Once a frame: upload the next queued image and advance the HD and ultra levels. */
-  step(): void {
+  /**
+   * Once a frame: upload the next queued image and advance the HD and ultra levels.
+   * @param seconds Time since the last frame.
+   */
+  step(seconds: number): void {
     const next = this.#uploads.shift();
     if (next) {
       this.#apply(next.texture, next.image);
       // Upload it now, so its cost lands in this frame rather than piling onto a later one.
       this.#renderer.initTexture(next.texture);
     }
-    this.hd.step();
-    this.ultra.step();
+    this.hd.step(seconds);
+    this.ultra.step(seconds);
+    this.#pool.step(seconds);
   }
 
   dispose(): void {
@@ -193,6 +206,8 @@ export class SceneTextures {
     }
     this.hd.dispose();
     this.ultra.dispose();
+    this.#pool.dispose();
+    this.#decoder.dispose();
     for (const { image } of this.#uploads) image.close();
     this.#uploads.length = 0;
   }

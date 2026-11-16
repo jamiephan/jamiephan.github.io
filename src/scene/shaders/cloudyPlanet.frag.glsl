@@ -1,6 +1,7 @@
 uniform sampler2D uMap;
 uniform sampler2D uMapUltra;
 uniform vec4 uMapUltraRect;
+uniform vec2 uMapBlend;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uRim;
@@ -15,7 +16,7 @@ uniform float uAlbedo;
 
 void main() {
   computeSphereUv();
-  vec3 albedo = ultraTexture(uMap, uMapUltra, uMapUltraRect, vec2(0.0)).rgb * uAlbedo;
+  vec3 albedo = ultraTexture(uMap, uMapUltra, uMapUltraRect, uMapBlend, vec2(0.0)).rgb * uAlbedo;
   vec3 N = normalize(vWorldNormal);
   vec3 V = normalize(cameraPosition - vWorldPos);
   vec3 L = uSunDir;

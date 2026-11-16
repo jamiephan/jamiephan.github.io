@@ -1289,11 +1289,11 @@ export class SpaceScene {
   }
 
   #tick(time: number): void {
-    this.#stepBakes();
-    this.#textures.step();
     // Clamp delta so returning to a background tab doesn't cause a big jump.
     const delta = this.#lastTime === null ? 0 : Math.min((time - this.#lastTime) / 1000, 0.1);
     this.#lastTime = time;
+    this.#stepBakes();
+    this.#textures.step(delta);
 
     if (!this.#reducedMotion) {
       const drift = degToRad(perFrameAt60(SKY_DRIFT_SPEED / 60, delta));
