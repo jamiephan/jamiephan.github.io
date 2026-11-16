@@ -104,6 +104,12 @@ const CLEARANCE = 0.01;
 const MIN_GAP = 0.012;
 
 /**
+ * How far above the surface of a body of this radius the camera may come: the ship's closest
+ * approach, and the furthest explore mode zooms in.
+ */
+export const surfaceClearance = (radius: number): number => Math.max(radius * CLEARANCE, MIN_GAP);
+
+/**
  * How far along the path `from` → `to` (0–1) it first enters the sphere, or null if it doesn't.
  * A path that starts inside, or is moving away, isn't a hit (the push-out handles those).
  */
@@ -504,7 +510,7 @@ export class FlightController {
     const move = this.#move;
     for (const { radius, getPosition } of this.#obstacles()) {
       const centre = getPosition(this.#scratch);
-      const minimum = radius + Math.max(radius * CLEARANCE, MIN_GAP);
+      const minimum = radius + surfaceClearance(radius);
 
       // Stop where the path first touches the clearance sphere; dropping the inward velocity
       // below then lets the ship slide along it.

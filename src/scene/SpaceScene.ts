@@ -28,7 +28,7 @@ import { createLightingUniforms } from "./materials.ts";
 import { degToRad, lerp, perFrameAt60, scrollProgress } from "./math.ts";
 import { DEFAULT_BODY, type BodyId } from "./bodies.ts";
 import { createEarthSystem, EARTH_VIEW_DISTANCE, type EarthSystem } from "./earthSystem.ts";
-import { FlightController, type Obstacle } from "./flight.ts";
+import { FlightController, surfaceClearance, type Obstacle } from "./flight.ts";
 import { createSolarSystem, type FocusTarget, type SolarSystem } from "./solarSystem.ts";
 import { SceneTextures } from "./sceneTextures.ts";
 import { createSky } from "./sky.ts";
@@ -46,8 +46,10 @@ import { PostProcessing } from "./postprocessing.ts";
 
 const MIN_DISTANCE = EARTH_VIEW_DISTANCE;
 const MAX_DISTANCE = 50;
-/** Explore-mode zoom limits: closest approach (× body radius) and furthest (× its view distance). */
-const ZOOM_MIN_RADII = 1.25;
+/**
+ * Explore-mode zoom out to this many times a body's view distance. Zooming in goes as close as
+ * the ship may fly: just above the surface (see `surfaceClearance`).
+ */
 const ZOOM_MAX_VIEW = 4.5;
 /** Explore-mode zoom never caps below this distance. */
 const ZOOM_MAX_FLOOR = MAX_DISTANCE * 1.5;
@@ -71,7 +73,10 @@ const SHAKE_ACCELERATION: [number, number] = [6, 45];
 const SHAKE_ANGLE = 0.0035;
 /** How often the speedometer is told the speed (ms). */
 const SPEED_REPORT_MS = 100;
-/** The near plane while flying: a fraction of the gap to the nearest surface, within limits. */
+/**
+ * The near plane while flying or zoomed in close: a fraction of the gap to the nearest surface,
+ * within limits (further out it stays at the maximum, as on the page).
+ */
 // A fifth of the gap, so layers just above a surface (the Earth's clouds) are never clipped.
 const FLIGHT_NEAR = { fraction: 0.2, min: 0.003, max: 0.5 };
 const DEFAULT_NEAR = 0.5;
@@ -249,6 +254,7 @@ export class SpaceScene {
   readonly #sphere = new Sphere();
   readonly #ultraForward = new Vector3();
   readonly #ultraPoint = new Vector3();
+  readonly #pushOut = new Vector3();
   /** The camera in its default (non-explore) pose, used to time the comet's orbit. */
   readonly #viewProbe = new PerspectiveCamera(60, 1, 0.5, CAMERA_FAR);
   readonly #focusPoint = new Vector3();
@@ -491,6 +497,7 @@ export class SpaceScene {
       this.#controls.enabled = false;
       this.#controls.disconnect();
       this.#controls.reset();
+      this.#setNear(DEFAULT_NEAR);
       this.#focusId = DEFAULT_BODY;
       this.#transition = null;
       this.#zoom = null;
@@ -729,7 +736,7 @@ export class SpaceScene {
       progress: this.#reducedMotion ? 1 : 0,
     };
     // Allow both the old and new distance while flying, so the controls don't clamp mid-way.
-    controls.minDistance = Math.min(controls.minDistance, target.radius * ZOOM_MIN_RADII);
+    controls.minDistance = Math.min(controls.minDistance, this.#closest(target));
     controls.maxDistance = Math.max(
       controls.maxDistance,
       fromDistance,
@@ -750,7 +757,9 @@ export class SpaceScene {
     const zoom = this.#zoom;
     this.#zoom = null;
     if (zoom && zoom.held < ZOOM_TAP_SECONDS) {
-      this.#zoomGoal = this.#clampDistance(zoom.from * ZOOM_STEP ** zoom.direction);
+      this.#zoomGoal = this.#clampDistance(
+        this.#scaleHeight(zoom.from, ZOOM_STEP ** zoom.direction),
+      );
     }
   }
 
@@ -758,7 +767,7 @@ export class SpaceScene {
   zoomStep(direction: number): void {
     if (this.#resetting) return;
     const from = this.#zoomGoal ?? this.#cameraDistance();
-    this.#zoomGoal = this.#clampDistance(from * ZOOM_STEP ** direction);
+    this.#zoomGoal = this.#clampDistance(this.#scaleHeight(from, ZOOM_STEP ** direction));
   }
 
   dispose(): void {
@@ -1059,8 +1068,52 @@ export class SpaceScene {
     }
   }
 
+  /** The closest the camera may come to a body's centre: just above its surface. */
+  #closest(target: { radius: number }): number {
+    return target.radius + surfaceClearance(target.radius);
+  }
+
+  /** `distance` from the focused body's centre, with its height above the surface scaled. */
+  #scaleHeight(distance: number, factor: number): number {
+    const floor = this.#targets.get(this.#focusId)!.radius;
+    return floor + Math.max(distance - floor, 0) * factor;
+  }
+
+  /**
+   * Push the camera back out of any body it has come too close to: the zoom limit is measured
+   * from the orbit centre, which panning moves off the body, and orbiting one body can swing
+   * the camera into another.
+   */
+  #keepOutOfBodies(): void {
+    const position = this.#camera.position;
+    for (const target of this.#obstacles()) {
+      const centre = target.getPosition(this.#scratch);
+      const away = this.#pushOut.subVectors(position, centre);
+      const distance = away.length();
+      const minimum = this.#closest(target);
+      if (distance >= minimum || distance === 0) continue;
+      position.copy(centre).add(away.multiplyScalar(minimum / distance));
+    }
+  }
+
+  /** Distance from the camera to the nearest surface. */
+  #nearestGap(): number {
+    let gap = Infinity;
+    for (const target of this.#obstacles()) {
+      const distance = target.getPosition(this.#scratch).distanceTo(this.#camera.position);
+      gap = Math.min(gap, distance - target.radius);
+    }
+    return gap;
+  }
+
+  /** Bring the near plane in as the camera nears a surface, so it never slices through it. */
+  #fitNear(gap: number): void {
+    const { fraction, min, max } = FLIGHT_NEAR;
+    this.#setNear(MathUtils.clamp(gap * fraction, min, max));
+  }
+
   #setDistanceLimits(target: FocusTarget): void {
-    this.#controls.minDistance = target.radius * ZOOM_MIN_RADII;
+    this.#controls.minDistance = this.#closest(target);
     this.#controls.maxDistance = Math.max(ZOOM_MAX_FLOOR, target.viewDistance * ZOOM_MAX_VIEW);
   }
 
@@ -1116,19 +1169,34 @@ export class SpaceScene {
       this.#zoom.held += delta;
       const goal = this.#zoomGoal ?? this.#cameraDistance();
       this.#zoomGoal = this.#clampDistance(
-        goal * Math.exp(-this.#zoom.direction * HOLD_ZOOM_RATE * delta),
+        this.#scaleHeight(goal, Math.exp(-this.#zoom.direction * HOLD_ZOOM_RATE * delta)),
       );
     }
     if (this.#zoomGoal !== null && !this.#transition) {
-      const distance = this.#cameraDistance();
-      const remaining = Math.log(this.#zoomGoal / distance);
-      // Ease in log space so zooming feels the same near a small moon and a giant planet.
-      this.#setCameraDistance(distance * Math.exp(remaining * (1 - Math.exp(-ZOOM_EASE * delta))));
+      // Ease the height above the surface in log space, so zooming feels the same near a small
+      // moon and a giant planet, and from far out right down to just above the ground.
+      const floor = target.radius;
+      const height = Math.max(this.#cameraDistance() - floor, 1e-6);
+      const remaining = Math.log(Math.max(this.#zoomGoal - floor, 1e-6) / height);
+      this.#setCameraDistance(
+        floor + height * Math.exp(remaining * (1 - Math.exp(-ZOOM_EASE * delta))),
+      );
       if (!this.#zoom && Math.abs(remaining) < 1e-3) this.#zoomGoal = null;
     }
 
+    // Wheel and pinch zoom scale the height above the surface rather than the distance to the
+    // centre, so steps get finer near the ground instead of hitting it in two; turning slows
+    // the same way, so the ground doesn't race past when skimming it.
+    const height = Math.max(this.#cameraDistance() - target.radius, 1e-6);
+    controls.zoomSpeed = Math.min(
+      1,
+      Math.log((target.radius + 0.95 * height) / (target.radius + height)) / Math.log(0.95),
+    );
+    controls.rotateSpeed = MathUtils.clamp((0.35 * height) / target.radius, 0.0005, 1);
+
     // Damping requires an update every frame; it emits "change" while still moving.
     controls.update(delta);
+    this.#keepOutOfBodies();
     this.#updateViewRoll(delta);
     // Remember where panning left the orbit centre relative to the body.
     if (!this.#transition) this.#pan.subVectors(controls.target, point);
@@ -1343,8 +1411,7 @@ export class SpaceScene {
         this.#flight.setVRInput(readVRInput(session.inputSources), this.#vrCamera.quaternion);
       this.#flight.update(delta);
       // Let the camera get close to surfaces without slicing them.
-      const { fraction, min, max } = FLIGHT_NEAR;
-      this.#setNear(MathUtils.clamp(this.#flight.nearestGap * fraction, min, max));
+      this.#fitNear(this.#flight.nearestGap);
       this.#needsRender = true;
       if (time - this.#lastSpeedReport > SPEED_REPORT_MS) {
         this.#lastSpeedReport = time;
@@ -1352,6 +1419,7 @@ export class SpaceScene {
       }
     } else if (this.#exploring) {
       this.#updateExploreCamera(delta);
+      this.#fitNear(this.#nearestGap());
     }
     this.#updateSunReturn(delta);
     if (
