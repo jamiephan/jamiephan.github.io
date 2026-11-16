@@ -29,4 +29,14 @@ describe("generateNebulaPuffs", () => {
       expect(Math.hypot(...centre) + size).toBeLessThan(MAX_RANGE);
     }
   });
+
+  it("keeps every puff's haze clear of the Earth, so the page itself isn't fogged", () => {
+    for (const spec of NEBULA_CLOUDS) {
+      const { shapes } = generateNebulaPuffs(spec);
+      for (let i = 0; i < spec.puffs; i++) {
+        const [x, y, z, radius] = shapes.subarray(i * 4, i * 4 + 4);
+        expect(Math.hypot(x!, y!, z!) - radius!).toBeGreaterThan(100);
+      }
+    }
+  });
 });

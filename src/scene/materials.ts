@@ -304,8 +304,9 @@ export const createSkyMaterial = (
       uSunAngularRadius: { value: 0.012 },
     },
     side: BackSide,
+    // Kept on the far plane by the vertex shader, so the depth test leaves out every pixel a
+    // body covers (see `BACKDROP_RENDER_ORDER`).
     depthWrite: false,
-    depthTest: false,
     vertexShader: skyVert,
     fragmentShader: glsl(COMMON, skyFrag),
   });

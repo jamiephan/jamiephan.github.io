@@ -25,7 +25,6 @@ import {
   SphereGeometry,
   Vector3,
   Vector4,
-  type Texture,
 } from "three";
 
 import jupiterUrl from "../assets/textures/jupiter.webp";
@@ -65,13 +64,7 @@ import {
 import { degToRad, wrappedOffset } from "./math.ts";
 import { meanAnomalyAt, orbitAt, periodForHiddenTime, visibleFraction } from "./orbit.ts";
 import { mulberry32 } from "./stars.ts";
-
-export type TextureLoad = (
-  url: string,
-  /** `wrap`: repeat in u, as a globe map does (the default). */
-  /** `body`: the body it belongs to, so its HD version can load when it's looked at. */
-  options?: { color?: boolean; sharp?: boolean; wrap?: boolean; body?: BodyId },
-) => Texture;
+import type { LoadTexture } from "./sceneTextures.ts";
 
 const Y_AXIS = new Vector3(0, 1, 0);
 const scratch = new Vector3();
@@ -272,7 +265,7 @@ export interface SolarSystem {
 
 const TAU = 2 * Math.PI;
 
-export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms): SolarSystem => {
+export const createSolarSystem = (load: LoadTexture, lighting: LightingUniforms): SolarSystem => {
   const group = new Group();
   const spinners: { mesh: Mesh; speed: number; home: number }[] = [];
   const targets = new Map<BodyId, FocusTarget>();

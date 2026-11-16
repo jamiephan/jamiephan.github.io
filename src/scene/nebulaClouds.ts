@@ -51,7 +51,10 @@ export interface NebulaCloudSpec {
 /**
  * Real nebulae dwarf a solar system, so these are vast (the Earth is 8 units across) and sit
  * well beyond the planets, but still within flight range. The first hangs above and behind the
- * Earth in the default view; the rest surround the solar system, waiting to be flown to.
+ * Earth in the default view; the rest surround the solar system, waiting to be flown to. The
+ * last is the biggest and nearest: a sprawling star-forming cloud (glowing hydrogen red, with
+ * teal oxygen at its heart, like the Orion Nebula) out by Uranus and Neptune, whose haze
+ * reaches the outer planets themselves.
  */
 export const NEBULA_CLOUDS: readonly NebulaCloudSpec[] = [
   {
@@ -119,6 +122,17 @@ export const NEBULA_CLOUDS: readonly NebulaCloudSpec[] = [
     clumps: 5,
     intensity: 0.032,
     seed: 67,
+  },
+  {
+    centre: [-1050, 520, -400],
+    size: 700,
+    primary: [1.0, 0.26, 0.38],
+    secondary: [0.28, 0.78, 0.9],
+    flash: [0.8, 0.95, 1.0],
+    puffs: 300,
+    clumps: 11,
+    intensity: 0.024,
+    seed: 79,
   },
 ];
 

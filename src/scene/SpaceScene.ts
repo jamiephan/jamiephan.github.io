@@ -1,66 +1,38 @@
 import {
   ACESFilmicToneMapping,
-  BackSide,
-  BufferAttribute,
   BufferGeometry,
   Color,
   Euler,
-  FrontSide,
   Frustum,
   Group,
-  ImageBitmapLoader,
-  LineSegments,
   LinearFilter,
-  LoadingManager,
   MathUtils,
   Matrix4,
   Mesh,
-  NoColorSpace,
   PerspectiveCamera,
   Quaternion,
   Points,
   RepeatWrapping,
   Scene,
-  ShaderMaterial,
   Sphere,
-  SphereGeometry,
-  SRGBColorSpace,
-  Texture,
   Vector3,
-  Vector4,
   WebGLRenderer,
   type Material,
   type Object3D,
+  type ShaderMaterial,
 } from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-import earthCloudsUrl from "../assets/textures/earth-clouds.webp";
-import earthDayUrl from "../assets/textures/earth-day.webp";
-import earthNightUrl from "../assets/textures/earth-night.webp";
-import earthNormalUrl from "../assets/textures/earth-normal.webp";
-import earthSpecularUrl from "../assets/textures/earth-specular.webp";
 import milkyWayUrl from "../assets/textures/milky-way.webp";
-import moonUrl from "../assets/textures/moon.webp";
-import {
-  createAtmosphereMaterial,
-  createCloudMaterial,
-  createDustStreakMaterial,
-  createEarthNightMaterial,
-  createEarthMaterial,
-  createLightingUniforms,
-  createRockyMaterial,
-  createSkyMaterial,
-  createSpaceDustMaterial,
-  createStarMaterial,
-  type SpaceDustUniforms,
-} from "./materials.ts";
-import { degToRad, lerp, perFrameAt60, scrollProgress, wrappedOffset } from "./math.ts";
+import { createLightingUniforms } from "./materials.ts";
+import { degToRad, lerp, perFrameAt60, scrollProgress } from "./math.ts";
 import { DEFAULT_BODY, type BodyId } from "./bodies.ts";
+import { createEarthSystem, EARTH_VIEW_DISTANCE, type EarthSystem } from "./earthSystem.ts";
 import { FlightController, type Obstacle } from "./flight.ts";
 import { createSolarSystem, type FocusTarget, type SolarSystem } from "./solarSystem.ts";
-import { hdFor, previewFor, ultraFor } from "./textures.ts";
-import { UltraTextures } from "./ultraTextures.ts";
-import { HdTextures, replaceImage } from "./hdTextures.ts";
+import { SceneTextures } from "./sceneTextures.ts";
+import { createSky } from "./sky.ts";
+import { createSpaceDust, type SpaceDust } from "./spaceDust.ts";
 import { isVRSupported, readVRInput } from "./xr.ts";
 import { NEBULA_RANGE, NebulaTexture } from "./nebula.ts";
 import { NebulaClouds } from "./nebulaClouds.ts";
@@ -69,11 +41,10 @@ import { Meteors } from "./meteors.ts";
 import { EARTH_RADIUS, SUN_DIRECTION } from "./layout.ts";
 import { scrollOrbitFor, type ScrollOrbit } from "./scrollOrbit.ts";
 import { PostProcessing } from "./postprocessing.ts";
-import { generateStarfield, mulberry32 } from "./stars.ts";
 
 /* ---------- Layout (world units; +Z is "up" on screen, the camera looks along +Y) ---------- */
 
-const MIN_DISTANCE = 25;
+const MIN_DISTANCE = EARTH_VIEW_DISTANCE;
 const MAX_DISTANCE = 50;
 /** Explore-mode zoom limits: closest approach (× body radius) and furthest (× its view distance). */
 const ZOOM_MIN_RADII = 1.25;
@@ -81,43 +52,10 @@ const ZOOM_MAX_VIEW = 4.5;
 /** Explore-mode zoom never caps below this distance. */
 const ZOOM_MAX_FLOOR = MAX_DISTANCE * 1.5;
 
-/** Real size ratios (see `layout.ts`); distances are compressed. */
-const CLOUD_RADIUS = EARTH_RADIUS * 1.006;
-const ATMOSPHERE_RADIUS = EARTH_RADIUS * 1.035;
-const EARTH_AXIAL_TILT = degToRad(23.44);
-const MOON_RADIUS = EARTH_RADIUS * 0.273;
-const MOON_ORBIT_RADIUS = 14;
-const MOON_ORBIT_TILT = -0.2;
-
 const SUN_COLOR = new Color(1, 0.96, 0.9).multiplyScalar(1.25);
 
 /** Far enough to see a nebula on the far side of the flight range from the other side. */
 const CAMERA_FAR = 8000;
-
-/** The sky sits well beyond the furthest planet (and the camera's far plane covers it). */
-const SKY_RADIUS = 1500;
-const STAR_RADIUS = 1400;
-const STAR_COUNT = 4500;
-
-/** Dust motes in a box of this size (world units) that wraps around the camera. */
-const DUST_COUNT = 1350;
-const DUST_BOX = 44;
-const DUST = {
-  boxSize: DUST_BOX,
-  /** Grain diameter in world units (exaggerated: real grains are microscopic). */
-  size: 0.0175,
-  intensity: 0.25,
-  /** Slow drift through the solar wind, units per second. */
-  drift: new Vector3(0.12, 0.05, -0.03),
-  /** Streaks span this many seconds of travel, and fade in between these speeds. */
-  streakTime: 0.06,
-  streakSpeeds: [15, 60] as [number, number],
-  /** Between these speeds, three quarters of the streaks fade out so fast flight stays readable. */
-  streakThinSpeeds: [60, 240] as [number, number],
-};
-
-/** The aurora / thunderstorm shell sits just above the clouds. */
-const NIGHT_SHELL_RADIUS = EARTH_RADIUS * 1.012;
 
 /**
  * Exposure adapts like an eye or an auto-exposing camera: darker with the Sun in view,
@@ -144,25 +82,15 @@ const DEFAULT_NEAR = 0.5;
  * threshold doesn't load and release it over and over. (Size on screen goes as 1 / distance.)
  */
 const HD_LOD_PIXELS = { load: 1000 / 1.3, release: 650 / 1.3 };
-/** HD maps are up to 8K wide: only on devices that take that size and have memory to spare. */
-const HD_TEXTURE_SIZE = 8192;
-const HD_MIN_DEVICE_MEMORY_GB = 4;
 /**
  * Ultra-HD level of detail (16K maps, streamed in a window at a time), by the same measure. The
  * HD map spreads ~4,000 texels across the disc, so switch to ultra well before that (from 44%
- * further away: 20% twice over). It takes up to ~450 MB more GPU memory (the Earth's five
- * maps), so only where there's plenty.
+ * further away: 20% twice over).
  */
 const ULTRA_LOD_PIXELS = { load: 4000 / 1.44, release: 2800 / 1.44 };
-const ULTRA_MIN_DEVICE_MEMORY_GB = 8;
 
-/** Degrees per second. */
-const SPEED = {
-  sky: 0.35,
-  earth: 4,
-  clouds: 0.35,
-  moonOrbit: 1.5,
-} as const;
+/** How fast the whole backdrop drifts, in degrees per second. */
+const SKY_DRIFT_SPEED = 0.35;
 
 /** Mouse parallax: pixels of movement per degree of rotation, and jump threshold. */
 const PAN_SLOWNESS = 500;
@@ -188,7 +116,6 @@ const AMBIENT_FRAME_MS = 1000 / 60 - 2;
 const UNFOCUSED_FRAME_MS = 1000 / 5 - 2;
 
 const X_AXIS = new Vector3(1, 0, 0);
-const Y_AXIS = new Vector3(0, 1, 0);
 const Z_AXIS = new Vector3(0, 0, 1);
 const SKY_DRIFT_AXIS = new Vector3(0.3, 0.2, 1).normalize();
 
@@ -222,6 +149,19 @@ const TAP_MAX_MOVE = 8;
 /** Small bodies stay tappable within this many CSS pixels of their centre. */
 const TAP_MIN_RADIUS = 28;
 
+/** Device pixels per world unit at distance 1, for a view `height` device pixels tall. */
+const pixelsPerUnitAt = (height: number, fovDegrees: number): number =>
+  height / (2 * Math.tan(degToRad(fovDegrees / 2)));
+
+/**
+ * A sphere's diameter on screen in device pixels (Infinity from inside it): the tangent of its
+ * angular radius, so it grows right up to the surface.
+ */
+const screenDiameter = (pixelsPerUnit: number, radius: number, distance: number): number =>
+  distance <= radius
+    ? Infinity
+    : (2 * pixelsPerUnit * radius) / Math.sqrt(distance ** 2 - radius ** 2);
+
 const easeInOutCubic = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
 interface FocusTransition {
@@ -245,19 +185,14 @@ export class SpaceScene {
   readonly #scene = new Scene();
   readonly #camera: PerspectiveCamera;
   readonly #controls: OrbitControls;
-  readonly #textures: Texture[] = [];
-  /** Textures showing a low-res preview, and the full-resolution file to swap in later. */
-  #pendingDetail: { texture: Texture; url: string }[] = [];
-  /** Up-to-8K maps for the one body being looked at up close. */
-  readonly #hd: HdTextures;
-  /** 16K maps, a window of tiles at a time, for the body flown or zoomed right up to. */
-  readonly #ultra: UltraTextures;
+  /** Every image texture, through its levels of detail (preview, full, HD, ultra). */
+  readonly #textures: SceneTextures;
   readonly #resizeObserver: ResizeObserver;
   readonly #reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   readonly #abort = new AbortController();
 
   /** Background (Milky Way, stars) — follows the camera and drifts slowly. */
-  readonly #sky = new Group();
+  readonly #sky: Group;
   /** The sky's starting orientation (where the galaxy sits relative to the Earth). */
   readonly #skyBase = new Quaternion();
   /** Slow automatic drift of the whole backdrop. */
@@ -267,8 +202,6 @@ export class SpaceScene {
   /** parallax × drift: applied to everything except the Earth. */
   readonly #backdrop = new Quaternion();
   readonly #turn = new Quaternion();
-  /** Carries the Moon's orbit, so the Moon turns with the backdrop too. */
-  readonly #moonFrame = new Group();
   readonly #starMaterial: ShaderMaterial;
   /** Procedural nebulae, baked once into a texture the sky shader adds to the Milky Way. */
   readonly #nebula = new NebulaTexture();
@@ -276,12 +209,7 @@ export class SpaceScene {
   readonly #nebulaClouds = new NebulaClouds();
   /** Distant galaxies on the backdrop (follow the camera like the sky). */
   readonly #galaxies = new Galaxies();
-  readonly #dust: SpaceDustUniforms = {
-    uCameraPos: { value: new Vector3() },
-    uVelocity: { value: new Vector3() },
-    uTime: { value: 0 },
-    uPointScale: { value: 1 },
-  };
+  readonly #dust: SpaceDust;
   /** Clock for aurorae, storms and film grain (stands still with reduced motion). */
   readonly #effectsTime = { value: 0 };
   /** 1 to allow flashing effects (storms), 0 with reduced motion. */
@@ -307,17 +235,8 @@ export class SpaceScene {
   /** Resolves the "nebulae are baked" promise the first time they finish. */
   #bakesDone: (() => void) | null = null;
   #lastSpeedReport = -Infinity;
-  readonly #earth: Mesh;
-  /** Drawn from its inside faces while the camera flies within it (see `#tick`). */
-  readonly #atmosphere: Mesh;
-  readonly #clouds: Mesh;
-  readonly #cloudMaterial: ShaderMaterial;
-  readonly #earthMaterial: ShaderMaterial;
-  readonly #moonOrbit = new Group();
-  readonly #moonPivot = new Group();
-  readonly #moon: Mesh;
-  /** The Moon as a shadow-casting sphere, shared by the Earth and cloud shaders. */
-  readonly #moonOccluder = { value: new Vector4(0, 0, 0, MOON_RADIUS) };
+  /** The Earth with its clouds and atmosphere, and the Moon. */
+  readonly #earthSystem: EarthSystem;
   readonly #solarSystem: SolarSystem;
   /** The shared sun-direction uniform value; rotating it relights every material at once. */
   readonly #sunDirection: Vector3;
@@ -363,11 +282,7 @@ export class SpaceScene {
   #viewRoll = 0;
   readonly #rollHeld = new Set<-1 | 1>();
   #rollReturn: { from: number; progress: number } | null = null;
-  /**
-   * The Earth's and Moon's turns at page load, and the glide back to them (with the sky, planets,
-   * belt and comet) on reset.
-   */
-  #home = { earth: 0, clouds: 0, moon: 0 };
+  /** The glide back to the page-load positions of everything that moves on its own (reset). */
   #homeReturn: { step: (progress: number) => void; progress: number } | null = null;
   /** A reset is animating: the user's camera input is ignored until it finishes. */
   #resetting = false;
@@ -401,11 +316,6 @@ export class SpaceScene {
   #lastRenderTime = -Infinity;
   #needsRender = true;
   #ready = false;
-  /**
-   * Images waiting to go to the GPU once the scene is showing: one per frame, since uploading
-   * a whole set at once (entering explore mode) stalled a frame for ~350 ms.
-   */
-  readonly #uploads: { texture: Texture; image: ImageBitmap }[] = [];
   #focused = document.hasFocus();
   #perf = { time: 0, frames: 0 };
 
@@ -450,68 +360,13 @@ export class SpaceScene {
     this.#camera.lookAt(0, 0, 0);
     this.#baseView.copy(this.#camera.quaternion);
 
-    // Textures — fade the canvas in only once they've all arrived.
-    let resolveTextures!: () => void;
-    const texturesLoaded = new Promise<void>((resolve) => (resolveTextures = resolve));
-    const manager = new LoadingManager(resolveTextures);
-    manager.onError = (url) => console.warn(`Failed to load texture: ${url}`);
-    const loader = this.#createImageLoader(manager);
-    const anisotropy = Math.min(8, this.#renderer.capabilities.getMaxAnisotropy());
-    // `deviceMemory` is Chromium-only (and rounded); elsewhere, trust the texture size limit.
-    const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-    const hdCapable =
-      this.#renderer.capabilities.maxTextureSize >= HD_TEXTURE_SIZE &&
-      (memory ?? Infinity) >= HD_MIN_DEVICE_MEMORY_GB;
-    this.#hd = new HdTextures(
-      hdCapable,
+    // Textures — the canvas fades in only once they've all arrived.
+    this.#textures = new SceneTextures(
       this.#renderer,
-      () => this.#createImageLoader(),
-      (from, to) => this.#swapTexture(from, to),
+      this.#scene,
       () => (this.#needsRender = true),
     );
-    // Browsers without `deviceMemory` (Firefox, Safari) include phones: leave them at HD.
-    this.#ultra = new UltraTextures(
-      hdCapable && (memory ?? 0) >= ULTRA_MIN_DEVICE_MEMORY_GB,
-      this.#renderer,
-      () => this.#createImageLoader(),
-      () => (this.#needsRender = true),
-    );
-    const load = (
-      url: string,
-      {
-        color = true,
-        sharp = false,
-        wrap = true,
-        body,
-        hdSized = false,
-      }: {
-        color?: boolean;
-        sharp?: boolean;
-        wrap?: boolean;
-        body?: BodyId;
-        /** The full-resolution file is HD-sized (8K): skip it where HD maps are skipped. */
-        hdSized?: boolean;
-      } = {},
-    ): Texture => {
-      // Start with the small preview if there is one; `#loadDetail` fetches the rest later.
-      const preview = previewFor(url);
-      const texture = new Texture();
-      texture.flipY = false; // the loader already flips the bitmap
-      loader.load(preview ?? url, (image) => this.#setImage(texture, image));
-      if (preview && (hdCapable || !hdSized)) this.#pendingDetail.push({ texture, url });
-      const hd = body && hdFor(url);
-      if (body && hd) this.#hd.register(texture, body, hd);
-      const ultra = body && ultraFor(url);
-      if (body && ultra) this.#ultra.register(texture, body, ultra);
-      texture.colorSpace = color ? SRGBColorSpace : NoColorSpace;
-      if (sharp) texture.anisotropy = anisotropy;
-      // Globe maps wrap round in longitude. Clamping would draw a seam where u meets 0/1 (the
-      // bump lookups straddle it) and smear the edge column into streaks wherever a lookup is
-      // shifted past it (the Earth's cloud shadows, which drift with the clouds).
-      if (wrap) texture.wrapS = RepeatWrapping;
-      this.#textures.push(texture);
-      return texture;
-    };
+    const load = this.#textures.load;
 
     const lighting = createLightingUniforms(SUN_DIRECTION, SUN_COLOR);
     this.#sunDirection = lighting.uSunDir.value;
@@ -524,126 +379,46 @@ export class SpaceScene {
     milkyWay.generateMipmaps = false;
     milkyWay.minFilter = LinearFilter;
     milkyWay.wrapS = RepeatWrapping;
-
-    const skyMesh = new Mesh(
-      new SphereGeometry(SKY_RADIUS, 64, 32),
-      createSkyMaterial(milkyWay, this.#nebula.texture, NEBULA_RANGE, lighting),
+    const sky = createSky(
+      milkyWay,
+      { texture: this.#nebula.texture, range: NEBULA_RANGE },
+      lighting,
     );
-    skyMesh.renderOrder = -2;
-    skyMesh.frustumCulled = false;
-
-    this.#starMaterial = createStarMaterial(lighting);
-    const stars = this.#createStars();
-
-    // Orient the galaxy so its bright core sits diagonally behind the Earth.
-    const galacticCentre = new Vector3(0.25, 1, 0.12).normalize();
-    const galacticNorth = new Vector3(0.75, -0.1, 1).projectOnPlane(galacticCentre).normalize();
-    this.#sky.quaternion.setFromRotationMatrix(
-      new Matrix4().makeBasis(
-        galacticCentre,
-        galacticNorth,
-        new Vector3().crossVectors(galacticCentre, galacticNorth),
-      ),
-    );
-    this.#sky.add(skyMesh, stars);
+    this.#sky = sky.group;
+    this.#starMaterial = sky.starMaterial;
     this.#skyBase.copy(this.#sky.quaternion);
 
-    /* ---------- Earth ---------- */
-    const earthTextures = {
-      day: load(earthDayUrl, { sharp: true, body: "earth" }),
-      night: load(earthNightUrl, { sharp: true, body: "earth" }),
-      normal: load(earthNormalUrl, { color: false, sharp: true, body: "earth" }),
-      specular: load(earthSpecularUrl, { color: false, body: "earth" }),
-      clouds: load(earthCloudsUrl, { color: false, sharp: true, body: "earth" }),
-    };
-
-    // Tilt the spin axis towards the Sun (northern summer), then spin about local +Y.
-    const earthTilt = new Group();
-    earthTilt.quaternion.setFromUnitVectors(
-      Y_AXIS,
-      new Vector3(Math.sin(EARTH_AXIAL_TILT), 0, Math.cos(EARTH_AXIAL_TILT)),
-    );
-
-    this.#earthMaterial = createEarthMaterial(earthTextures, lighting, this.#moonOccluder);
-    this.#earth = new Mesh(new SphereGeometry(EARTH_RADIUS, 128, 64), this.#earthMaterial);
-    // Start with Europe and Africa facing the camera.
-    this.#earth.rotation.y = Math.PI / 2 - 2 * Math.PI * ((15 + 180) / 360);
-
-    this.#cloudMaterial = createCloudMaterial(earthTextures.clouds, lighting, this.#moonOccluder);
-    this.#clouds = new Mesh(new SphereGeometry(CLOUD_RADIUS, 128, 64), this.#cloudMaterial);
-    this.#clouds.renderOrder = 1;
-    this.#earth.add(this.#clouds);
-
-    // Aurorae and thunderstorms on the night side, riding with the clouds (and their UVs).
-    const nightShell = new Mesh(
-      new SphereGeometry(NIGHT_SHELL_RADIUS, 96, 48),
-      createEarthNightMaterial(earthTextures.clouds, lighting, this.#effectsTime, this.#flashes),
-    );
-    nightShell.renderOrder = 1.5;
-    this.#clouds.add(nightShell);
-    earthTilt.add(this.#earth);
-
-    const atmosphere = (this.#atmosphere = new Mesh(
-      new SphereGeometry(ATMOSPHERE_RADIUS, 96, 48),
-      createAtmosphereMaterial(lighting, EARTH_RADIUS, ATMOSPHERE_RADIUS),
-    ));
-    atmosphere.renderOrder = 2;
-
-    /* ---------- Moon (tidally locked: the same face always points at the Earth) ---------- */
-    this.#moon = new Mesh(
-      new SphereGeometry(MOON_RADIUS, 64, 32),
-      createRockyMaterial(load(moonUrl, { sharp: true, body: "moon" }), lighting, {
-        // The Earth eclipses the Moon, and lights its night side (earthshine).
-        occluder: { value: new Vector4(0, 0, 0, EARTH_RADIUS) },
-        ambient: new Color(0.015, 0.02, 0.03),
-      }),
-    );
-    this.#moon.position.set(MOON_ORBIT_RADIUS, 0, 0);
-    this.#moon.rotation.set(Math.PI / 2, Math.PI, 0);
-    this.#moonPivot.rotation.z = -0.4;
-    this.#moonPivot.add(this.#moon);
-    this.#home = {
-      earth: this.#earth.rotation.y,
-      clouds: this.#clouds.rotation.y,
-      moon: this.#moonPivot.rotation.z,
-    };
-    this.#moonOrbit.rotation.x = MOON_ORBIT_TILT;
-    this.#moonOrbit.add(this.#moonPivot);
-    this.#moonFrame.add(this.#moonOrbit);
+    /* ---------- Earth and Moon ---------- */
+    this.#earthSystem = createEarthSystem(load, lighting, {
+      time: this.#effectsTime,
+      flashes: this.#flashes,
+    });
 
     /* ---------- Other planets, asteroid belt, comet ---------- */
     this.#solarSystem = createSolarSystem(load, lighting);
 
     /* ---------- Dust drifting between the camera and everything else ---------- */
-    const [dust, dustStreaks] = this.#createDust(lighting);
+    this.#dust = createSpaceDust(lighting);
 
     this.#vrRig.add(this.#vrCamera);
     this.#scene.add(
       this.#sky,
-      earthTilt,
-      atmosphere,
-      this.#moonFrame,
+      this.#earthSystem.earth,
+      this.#earthSystem.atmosphere,
+      this.#earthSystem.moonFrame,
       this.#solarSystem.group,
       this.#nebulaClouds.group,
       this.#galaxies.group,
       this.#meteors.object,
-      dust,
-      dustStreaks,
+      this.#dust.dots,
+      this.#dust.streaks,
       this.#vrRig,
     );
-    this.#ultra.bindFrames(this.#scene);
+    this.#textures.bindFrames();
 
-    this.#targets.set("earth", {
-      radius: EARTH_RADIUS,
-      viewDistance: MIN_DISTANCE,
-      getPosition: (out) => out.set(0, 0, 0),
-    });
-    this.#targets.set("moon", {
-      radius: MOON_RADIUS,
-      viewDistance: MOON_RADIUS * 5,
-      getPosition: (out) => this.#moon.getWorldPosition(out),
-    });
-    for (const [id, target] of this.#solarSystem.targets) this.#targets.set(id, target);
+    for (const targets of [this.#earthSystem.targets, this.#solarSystem.targets]) {
+      for (const [id, target] of targets) this.#targets.set(id, target);
+    }
 
     // Orbit controls are only attached while exploring (see `setExploring`).
     this.#controls = new OrbitControls(this.#camera);
@@ -673,7 +448,7 @@ export class SpaceScene {
     this.#updateScrollTarget();
     this.#progress = this.#targetProgress;
     this.#applyScrollView();
-    this.#updateDynamicUniforms();
+    this.#earthSystem.beforeRender(this.#camera.position);
 
     // Compile shaders in parallel with the downloads so the first frame doesn't hitch. They're
     // compiled for the HDR buffer the scene is drawn into (no tone mapping in the materials).
@@ -682,7 +457,7 @@ export class SpaceScene {
     this.#renderer.setRenderTarget(null);
     // The nebulae bake a strip per frame (see `#stepBakes`), so no GPU job runs long.
     const baked = new Promise<void>((resolve) => (this.#bakesDone = resolve));
-    Promise.all([texturesLoaded, compiled, baked])
+    Promise.all([this.#textures.loaded, compiled, baked])
       .catch((error: unknown) => console.warn("Shader pre-compilation failed", error))
       .finally(() => {
         if (this.#disposed) return;
@@ -690,77 +465,12 @@ export class SpaceScene {
         // post-processing shaders, so the first frame anyone sees isn't a slow one.
         this.#renderFrame();
         this.#ready = true;
+        this.#textures.startShowing();
         this.#needsRender = true;
         onReady?.();
       });
 
     this.#renderer.setAnimationLoop((time) => this.#tick(time));
-  }
-
-  /**
-   * Swap the preview textures for full resolution. Only done once someone starts exploring and
-   * can zoom in, so a normal visit never downloads the large files.
-   */
-  #loadDetail(): void {
-    const loader = this.#createImageLoader();
-    for (const { texture, url } of this.#pendingDetail) {
-      loader.load(url, (image) => this.#setImage(texture, image));
-    }
-    this.#pendingDetail = [];
-  }
-
-  /**
-   * Images are decoded to bitmaps off the main thread. Decoding an `<img>` happens during the
-   * WebGL upload instead, which blocked the page for hundreds of milliseconds on slower phones.
-   */
-  #createImageLoader(manager?: LoadingManager): ImageBitmapLoader {
-    return new ImageBitmapLoader(manager).setOptions({
-      imageOrientation: "flipY",
-      premultiplyAlpha: "none",
-    });
-  }
-
-  /** Give a texture its (new) image; it is uploaded on the next render. */
-  #setImage(texture: Texture, image: ImageBitmap): void {
-    if (this.#disposed) {
-      image.close();
-      return;
-    }
-    // Before the first frame everything goes up at once (that frame is drawn hidden anyway).
-    if (this.#ready) {
-      this.#uploads.push({ texture, image });
-      return;
-    }
-    this.#applyImage(texture, image);
-  }
-
-  /** Upload the next queued image, if any; called once a frame. */
-  #stepUploads(): void {
-    const next = this.#uploads.shift();
-    if (!next) return;
-    this.#applyImage(next.texture, next.image);
-    // Upload it now, so its cost lands in this frame rather than piling onto a later one.
-    this.#renderer.initTexture(next.texture);
-  }
-
-  #applyImage(texture: Texture, image: ImageBitmap): void {
-    const previous = texture.image;
-    replaceImage(texture, image);
-    if (previous instanceof ImageBitmap) previous.close();
-    this.#needsRender = true;
-  }
-
-  /** Point every material that samples `from` at `to` instead (HD maps in and out). */
-  #swapTexture(from: Texture, to: Texture): void {
-    this.#scene.traverse((object) => {
-      const material = (object as Partial<Mesh>).material;
-      for (const m of Array.isArray(material) ? material : material ? [material] : []) {
-        if (!(m instanceof ShaderMaterial)) continue;
-        for (const uniform of Object.values(m.uniforms)) {
-          if (uniform.value === from) uniform.value = to;
-        }
-      }
-    });
   }
 
   /** Toggle free-roam mode where the user drives the camera with orbit controls. */
@@ -772,7 +482,7 @@ export class SpaceScene {
     if (exploring) {
       // Checked here rather than on load: asking `navigator.xr` rules out the back/forward cache.
       void isVRSupported().then((supported) => (this.#vrSupported = supported));
-      this.#loadDetail();
+      this.#textures.loadDetail();
       this.#controls.connect(this.#renderer.domElement);
       this.#controls.enabled = true;
     } else {
@@ -812,7 +522,7 @@ export class SpaceScene {
     this.#zoomGoal = null;
     this.#transition = null;
     if (flying) {
-      this.#loadDetail();
+      this.#textures.loadDetail();
       this.#controls.enabled = false;
       // The flight starts from the view as it is, roll included; it's level again afterwards.
       this.#clearViewRoll();
@@ -952,18 +662,12 @@ export class SpaceScene {
    * shorter way round. Returns a step taking eased progress 0–1.
    */
   #returnHome(): (progress: number) => void {
-    const home = this.#home;
-    const earth = wrappedOffset(this.#earth.rotation.y, home.earth, 2 * Math.PI);
-    const clouds = wrappedOffset(this.#clouds.rotation.y, home.clouds, 2 * Math.PI);
-    const moon = wrappedOffset(this.#moonPivot.rotation.z, home.moon, 2 * Math.PI);
+    const earthSystem = this.#earthSystem.returnHome();
     const drift = this.#drift.clone();
     const identity = new Quaternion();
     const solarSystem = this.#solarSystem.returnHome();
     return (progress) => {
-      const left = 1 - progress;
-      this.#earth.rotation.y = home.earth + earth * left;
-      this.#clouds.rotation.y = home.clouds + clouds * left;
-      this.#moonPivot.rotation.z = home.moon + moon * left;
+      earthSystem(progress);
       this.#drift.slerpQuaternions(drift, identity, progress);
       solarSystem(progress);
     };
@@ -1074,13 +778,7 @@ export class SpaceScene {
         : [object.material];
       for (const material of materials) material.dispose();
     });
-    for (const texture of this.#textures) {
-      texture.dispose();
-      if (texture.image instanceof ImageBitmap) texture.image.close();
-    }
-    this.#hd.dispose();
-    this.#ultra.dispose();
-    for (const { image } of this.#uploads) image.close();
+    this.#textures.dispose();
     this.#nebula.dispose();
     this.#nebulaClouds.dispose();
     this.#post.dispose();
@@ -1088,62 +786,6 @@ export class SpaceScene {
     this.#renderer.dispose();
     this.#renderer.forceContextLoss();
     this.#renderer.domElement.remove();
-  }
-
-  #createStars(): Points {
-    const { positions, colors, sizes } = generateStarfield({
-      count: STAR_COUNT,
-      radius: STAR_RADIUS,
-    });
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(positions, 3));
-    geometry.setAttribute("aColor", new BufferAttribute(colors, 3));
-    geometry.setAttribute("aSize", new BufferAttribute(sizes, 1));
-
-    // A single draw call for the whole starfield.
-    const stars = new Points(geometry, this.#starMaterial);
-    stars.frustumCulled = false;
-    stars.renderOrder = -1;
-    return stars;
-  }
-
-  #createDust(lighting: ReturnType<typeof createLightingUniforms>): [Points, LineSegments] {
-    const random = mulberry32(2718);
-    const positions = new Float32Array(DUST_COUNT * 3);
-    const randoms = new Float32Array(DUST_COUNT * 2);
-    for (let i = 0; i < positions.length; i++) positions[i] = random();
-    for (let i = 0; i < randoms.length; i++) randoms[i] = random();
-    const geometry = new BufferGeometry();
-    geometry.setAttribute("position", new BufferAttribute(positions, 3));
-    geometry.setAttribute("aRandom", new BufferAttribute(randoms, 2));
-
-    const earth = { value: new Vector4(0, 0, 0, EARTH_RADIUS) };
-    const dust = new Points(geometry, createSpaceDustMaterial(this.#dust, lighting, DUST, earth));
-    // Positions are wrapped around the camera in the shader, so the bounds mean nothing.
-    dust.frustumCulled = false;
-
-    // The same grains again as head/tail pairs, for streaks at speed.
-    const pairs = new Float32Array(DUST_COUNT * 6);
-    const pairRandoms = new Float32Array(DUST_COUNT * 4);
-    const ends = new Float32Array(DUST_COUNT * 2);
-    for (let i = 0; i < DUST_COUNT; i++) {
-      for (const end of [0, 1]) {
-        const v = i * 2 + end;
-        pairs.set(positions.subarray(i * 3, i * 3 + 3), v * 3);
-        pairRandoms.set(randoms.subarray(i * 2, i * 2 + 2), v * 2);
-        ends[v] = end;
-      }
-    }
-    const streakGeometry = new BufferGeometry();
-    streakGeometry.setAttribute("position", new BufferAttribute(pairs, 3));
-    streakGeometry.setAttribute("aRandom", new BufferAttribute(pairRandoms, 2));
-    streakGeometry.setAttribute("aEnd", new BufferAttribute(ends, 1));
-    const streaks = new LineSegments(
-      streakGeometry,
-      createDustStreakMaterial(this.#dust, lighting, DUST, earth),
-    );
-    streaks.frustumCulled = false;
-    return [dust, streaks];
   }
 
   /**
@@ -1178,7 +820,7 @@ export class SpaceScene {
     this.#cameraVelocity.lerp(step, 1 - Math.exp(-12 * delta));
     const acceleration = this.#previousVelocity.distanceTo(this.#cameraVelocity) / delta;
     this.#acceleration = lerp(this.#acceleration, acceleration, 1 - Math.exp(-8 * delta));
-    this.#dust.uVelocity.value.copy(this.#cameraVelocity);
+    this.#dust.uniforms.uVelocity.value.copy(this.#cameraVelocity);
   }
 
   /**
@@ -1342,15 +984,14 @@ export class SpaceScene {
     probe.updateProjectionMatrix();
     probe.updateMatrixWorld();
     this.#solarSystem.fitCometToView(probe);
-    // Comet dust grains are sized in world units, so they need pixels-per-unit at distance 1.
-    this.#solarSystem.setPointScale(
-      (height * this.#renderer.getPixelRatio()) / (2 * Math.tan(degToRad(this.#camera.fov / 2))),
-    );
+    // Dust grains are sized in world units, so they need pixels-per-unit at distance 1.
+    const pixelRatio = this.#renderer.getPixelRatio();
+    const pointScale = pixelsPerUnitAt(height * pixelRatio, this.#camera.fov);
+    this.#solarSystem.setPointScale(pointScale);
+    this.#dust.uniforms.uPointScale.value = pointScale;
     this.#renderer.setSize(width, height, false);
-    this.#post.setSize(width, height, this.#renderer.getPixelRatio());
-    this.#starMaterial.uniforms.uPixelRatio!.value = this.#renderer.getPixelRatio();
-    this.#dust.uPointScale.value =
-      (height * this.#renderer.getPixelRatio()) / (2 * Math.tan(degToRad(this.#camera.fov / 2)));
+    this.#post.setSize(width, height, pixelRatio);
+    this.#starMaterial.uniforms.uPixelRatio!.value = pixelRatio;
     this.#perf = { time: 0, frames: 0 };
     this.#needsRender = true;
   }
@@ -1394,20 +1035,6 @@ export class SpaceScene {
     const distance = lerp(MIN_DISTANCE, MAX_DISTANCE, progress);
     this.#camera.position.set(0, -distance, 0).applyQuaternion(this.#orbit);
     this.#camera.quaternion.multiplyQuaternions(this.#orbit, this.#baseView);
-  }
-
-  /** Per-frame uniforms that depend on moving objects. */
-  #updateDynamicUniforms(): void {
-    this.#moonFrame.updateMatrixWorld(true);
-    const moon = this.#moon.getWorldPosition(this.#scratch);
-    this.#moonOccluder.value.set(moon.x, moon.y, moon.z, MOON_RADIUS);
-
-    // Clouds drift relative to the ground; shift the cloud-shadow lookup to match.
-    // Kept within 0–1 (the texture repeats), so precision doesn't drain away as it grows.
-    this.#earthMaterial.uniforms.uCloudOffset!.value = MathUtils.euclideanModulo(
-      -this.#clouds.rotation.y / (2 * Math.PI),
-      1,
-    );
   }
 
   /**
@@ -1528,7 +1155,7 @@ export class SpaceScene {
   /** The body under a screen point, allowing generous slack for ones only a few pixels wide. */
   #pick(clientX: number, clientY: number): BodyId | null {
     const rect = this.#renderer.domElement.getBoundingClientRect();
-    const pixelsPerUnit = rect.height / 2 / Math.tan(degToRad(this.#camera.fov / 2));
+    const pixelsPerUnit = pixelsPerUnitAt(rect.height, this.#camera.fov);
     let best: { id: BodyId; score: number } | null = null;
 
     for (const [id, target] of this.#targets) {
@@ -1553,29 +1180,27 @@ export class SpaceScene {
   #updateHdBody(): void {
     // Only explore and flight get close enough to need it (and VR has its own resolution).
     if (!this.#exploring || this.#renderer.xr.isPresenting) {
-      this.#hd.setActive(null);
-      this.#ultra.update(null, null);
+      this.#textures.hd.setActive(null);
+      this.#textures.ultra.update(null, null);
       return;
     }
     const camera = this.#camera;
-    const pixelsPerUnit =
-      this.#renderer.domElement.height / (2 * Math.tan(degToRad(camera.fov / 2)));
+    const pixelsPerUnit = pixelsPerUnitAt(this.#renderer.domElement.height, camera.fov);
     this.#frustum.setFromProjectionMatrix(
       this.#frustumMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse),
     );
 
-    const current = this.#hd.active;
+    const current = this.#textures.hd.active;
     let keepCurrent = false;
     let best: { id: BodyId; pixels: number } | null = null;
     for (const [id, target] of this.#targets) {
       if (id === "comet") continue;
       const centre = target.getPosition(this.#scratch);
-      const distance = centre.distanceTo(camera.position);
-      // Diameter on screen (tangent of the angular radius, so it grows right up to the surface).
-      const pixels =
-        distance <= target.radius
-          ? Infinity
-          : (2 * pixelsPerUnit * target.radius) / Math.sqrt(distance ** 2 - target.radius ** 2);
+      const pixels = screenDiameter(
+        pixelsPerUnit,
+        target.radius,
+        centre.distanceTo(camera.position),
+      );
       if (id === current && pixels >= HD_LOD_PIXELS.release) keepCurrent = true;
       this.#sphere.set(centre, target.radius);
       if (pixels < HD_LOD_PIXELS.load || !this.#frustum.intersectsSphere(this.#sphere)) continue;
@@ -1583,7 +1208,7 @@ export class SpaceScene {
     }
     // The biggest body in view past the threshold; otherwise hold on to the current one until
     // it's well below it (turning away from it briefly doesn't release it).
-    this.#hd.setActive(best?.id ?? (keepCurrent ? current : null));
+    this.#textures.hd.setActive(best?.id ?? (keepCurrent ? current : null));
     this.#updateUltraBody();
   }
 
@@ -1592,23 +1217,27 @@ export class SpaceScene {
    * surface in the middle of the view.
    */
   #updateUltraBody(): void {
-    const body = this.#hd.active;
-    const threshold =
-      body === this.#ultra.active ? ULTRA_LOD_PIXELS.release : ULTRA_LOD_PIXELS.load;
+    const { hd, ultra } = this.#textures;
+    const camera = this.#camera;
+    const body = hd.active;
+    const threshold = body === ultra.active ? ULTRA_LOD_PIXELS.release : ULTRA_LOD_PIXELS.load;
     const target = body && this.#targets.get(body);
-    if (!body || !target || this.#screenDiameter(body) < threshold) {
-      this.#ultra.update(null, null);
+    const centre = target?.getPosition(this.#scratch);
+    const pixelsPerUnit = pixelsPerUnitAt(this.#renderer.domElement.height, camera.fov);
+    if (
+      !body ||
+      !target ||
+      !centre ||
+      screenDiameter(pixelsPerUnit, target.radius, centre.distanceTo(camera.position)) < threshold
+    ) {
+      ultra.update(null, null);
       return;
     }
     // Where the line of sight meets the surface. If it misses, the point on it nearest to the
     // body (only the direction from the body's centre matters); if the body is behind, the
     // camera's own position.
-    const camera = this.#camera;
     const forward = camera.getWorldDirection(this.#ultraForward);
-    const toCentre = this.#ultraPoint.subVectors(
-      target.getPosition(this.#scratch),
-      camera.position,
-    );
+    const toCentre = this.#ultraPoint.subVectors(centre, camera.position);
     const along = toCentre.dot(forward);
     const missSq = toCentre.lengthSq() - along * along;
     const point = this.#ultraPoint.copy(camera.position);
@@ -1616,20 +1245,7 @@ export class SpaceScene {
       const hit = missSq < target.radius ** 2 ? Math.sqrt(target.radius ** 2 - missSq) : 0;
       point.addScaledVector(forward, along - hit);
     }
-    this.#ultra.update(body, point);
-  }
-
-  /** A body's diameter on screen in device pixels (Infinity from inside it). */
-  #screenDiameter(id: BodyId): number {
-    const target = this.#targets.get(id);
-    if (!target) return 0;
-    const camera = this.#camera;
-    const pixelsPerUnit =
-      this.#renderer.domElement.height / (2 * Math.tan(degToRad(camera.fov / 2)));
-    const distance = target.getPosition(this.#scratch).distanceTo(camera.position);
-    return distance <= target.radius
-      ? Infinity
-      : (2 * pixelsPerUnit * target.radius) / Math.sqrt(distance ** 2 - target.radius ** 2);
+    ultra.update(body, point);
   }
 
   /** Bake one strip of whichever nebula texture isn't finished yet. */
@@ -1649,15 +1265,11 @@ export class SpaceScene {
 
   /** Draw the scene: straight to the headset in VR, otherwise through post-processing. */
   #renderFrame(time = 0): void {
-    // Inside the atmosphere its outer faces point away from the camera; draw the inner ones.
-    // (The shader marches from the camera either way, so the result is the same.)
-    (this.#atmosphere.material as Material).side =
-      this.#camera.position.length() < ATMOSPHERE_RADIUS ? BackSide : FrontSide;
     // The sky is infinitely far away: keep it centred on the camera.
     this.#sky.position.copy(this.#camera.position);
     this.#galaxies.group.position.copy(this.#camera.position);
-    this.#dust.uCameraPos.value.copy(this.#camera.position);
-    this.#updateDynamicUniforms();
+    this.#dust.uniforms.uCameraPos.value.copy(this.#camera.position);
+    this.#earthSystem.beforeRender(this.#camera.position);
     // The belt's level of detail and culling need this frame's camera matrices. (The headset
     // looks around from the ship's position, so in VR only the detail level applies.)
     this.#camera.updateMatrixWorld();
@@ -1678,22 +1290,17 @@ export class SpaceScene {
 
   #tick(time: number): void {
     this.#stepBakes();
-    this.#stepUploads();
-    this.#hd.step();
-    this.#ultra.step();
+    this.#textures.step();
     // Clamp delta so returning to a background tab doesn't cause a big jump.
     const delta = this.#lastTime === null ? 0 : Math.min((time - this.#lastTime) / 1000, 0.1);
     this.#lastTime = time;
 
     if (!this.#reducedMotion) {
-      const spin = (degreesPerSecond: number) =>
-        degToRad(perFrameAt60(degreesPerSecond / 60, delta));
-      this.#drift.premultiply(this.#turn.setFromAxisAngle(SKY_DRIFT_AXIS, spin(SPEED.sky)));
-      this.#earth.rotation.y += spin(SPEED.earth);
-      this.#clouds.rotation.y += spin(SPEED.clouds);
-      this.#moonPivot.rotation.z += spin(SPEED.moonOrbit);
+      const drift = degToRad(perFrameAt60(SKY_DRIFT_SPEED / 60, delta));
+      this.#drift.premultiply(this.#turn.setFromAxisAngle(SKY_DRIFT_AXIS, drift));
+      this.#earthSystem.update(delta);
       this.#solarSystem.update(delta);
-      this.#dust.uTime.value += delta;
+      this.#dust.uniforms.uTime.value += delta;
       this.#nebulaClouds.update(delta);
       this.#effectsTime.value += delta;
       this.#meteors.update(delta);
@@ -1721,7 +1328,7 @@ export class SpaceScene {
     // the camera, which may follow a body.
     this.#backdrop.multiplyQuaternions(this.#parallax, this.#drift);
     this.#sky.quaternion.multiplyQuaternions(this.#backdrop, this.#skyBase);
-    this.#moonFrame.quaternion.copy(this.#backdrop);
+    this.#earthSystem.moonFrame.quaternion.copy(this.#backdrop);
     this.#nebulaClouds.group.quaternion.copy(this.#backdrop);
     this.#galaxies.group.quaternion.copy(this.#backdrop);
     // The comet's orbit also turns with the scroll orbit, so it stays in the camera's view.

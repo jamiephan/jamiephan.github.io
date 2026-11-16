@@ -6,6 +6,10 @@ uniform float uFlashes;
 // Glow of one auroral oval around `pole` (object space), ~20° from it.
 vec3 aurora(vec3 n, vec3 pole, float seed) {
   float theta = acos(clamp(dot(n, pole), -1.0, 1.0));
+  // The oval's centre (below) stays within 0.045 of 0.34 (wobble 0.035, noise 0.01), and the band
+  // drops under the 0.01 cut-off 0.0751 from it. Further out the result is zero anyway: skip
+  // the noise, which would otherwise run over the whole night side.
+  if (abs(theta - 0.34) > 0.121) return vec3(0.0);
   vec3 east = normalize(cross(pole, abs(pole.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 0, 1)));
   float lon = atan(dot(n, cross(pole, east)), dot(n, east));
   // The oval wobbles and pulses slowly.
