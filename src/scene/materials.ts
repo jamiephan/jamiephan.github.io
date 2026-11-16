@@ -194,13 +194,15 @@ export interface CloudyPlanetOptions {
   rim?: Color;
   /** 0 = no limb darkening, 1 = strong. */
   limbDarkening?: number;
+  /** Multiplier on the texture colour, for maps too bright to survive tone mapping. */
+  albedo?: number;
 }
 
 /** Planets whose visible surface is cloud tops: Venus and the giants. */
 export const createCloudyPlanetMaterial = (
   map: Texture,
   lighting: LightingUniforms,
-  { ring, rim = new Color(0, 0, 0), limbDarkening = 0.35 }: CloudyPlanetOptions = {},
+  { ring, rim = new Color(0, 0, 0), limbDarkening = 0.35, albedo = 1 }: CloudyPlanetOptions = {},
 ): ShaderMaterial =>
   new ShaderMaterial({
     uniforms: {
@@ -209,6 +211,7 @@ export const createCloudyPlanetMaterial = (
       uMap: { value: map },
       uRim: { value: rim },
       uLimbDarkening: { value: limbDarkening },
+      uAlbedo: { value: albedo },
     },
     defines: ring ? { HAS_RING: "" } : {},
     vertexShader: sphereVert,

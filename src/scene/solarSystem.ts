@@ -92,6 +92,8 @@ interface PlanetSpec {
   /** Haze glowing beyond the limb (none for airless bodies). */
   halo?: HaloOptions;
   limbDarkening?: number;
+  /** Multiplier on the texture colour (cloudy planets only). */
+  albedo?: number;
   rings?: { url: string; inner: number; outer: number };
 }
 
@@ -164,7 +166,10 @@ const PLANETS: readonly PlanetSpec[] = [
     rim: new Color(0.1, 0.2, 0.22),
     // Methane haze scatters blue-green.
     halo: { color: new Color(0.12, 0.24, 0.27), height: 0.007 },
-    limbDarkening: 0.2,
+    limbDarkening: 0.35,
+    // The map is pale cyan; at full strength the sunlight pushes it past 1 and tone mapping
+    // bleaches it white.
+    albedo: 0.6,
   },
   {
     id: "neptune",
@@ -318,6 +323,7 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
             ring: ringUniforms,
             rim: spec.rim,
             limbDarkening: spec.limbDarkening,
+            albedo: spec.albedo,
           });
 
     // Any planet can fill the screen in explore and flight mode, so all get enough segments

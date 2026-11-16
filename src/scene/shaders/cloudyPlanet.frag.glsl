@@ -3,6 +3,7 @@ uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uRim;
 uniform float uLimbDarkening;
+uniform float uAlbedo;
 #ifdef HAS_RING
   uniform sampler2D uRing;
   uniform vec3 uRingNormal;
@@ -12,7 +13,7 @@ uniform float uLimbDarkening;
 
 void main() {
   computeSphereUv();
-  vec3 albedo = sphereTexture(uMap, vec2(0.0)).rgb;
+  vec3 albedo = sphereTexture(uMap, vec2(0.0)).rgb * uAlbedo;
   vec3 N = normalize(vWorldNormal);
   vec3 V = normalize(cameraPosition - vWorldPos);
   vec3 L = uSunDir;
