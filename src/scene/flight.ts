@@ -60,8 +60,30 @@ const OVERSPEED_DRAG = 3;
  */
 const LEAVE_SPEEDUP = 4;
 const LEAVE_RESPONSE = 3;
+/**
+ * Out in open space, speed builds (and bleeds off) this much as quickly, for a heavier feel
+ * between the planets. It blends in from OPEN_SPACE_FROM to OPEN_SPACE_TO radii above the
+ * nearest body; closer in, the ship stays nimble.
+ */
+const OPEN_SPACE_RESPONSE = 0.6;
+const OPEN_SPACE_FROM = 1;
+const OPEN_SPACE_TO = 4;
 /** Radians of turn per pixel of mouse movement or drag. */
 const MOUSE_SENSITIVITY = 0.0025;
+/**
+ * With the mouse captured (desktop), it works a flight stick rather than turning the view
+ * directly: moving it deflects the stick (up to full deflection), the stick sets a turn rate
+ * (up to STICK_TURN_RATE), the ship's turn eases towards that rate (STICK_RESPONSE, per second)
+ * and the stick drifts back to centre (STICK_RECENTER, per second). Small moves turn about as
+ * far as before, but a fast flick can't whip the view round (a big flick turns ~50°, not
+ * ~140°; keeping the mouse moving turns at most ~80°/s), and the ship swings into and out of
+ * each turn.
+ */
+const STICK_TURN_RATE = 1.4;
+const STICK_RECENTER = 1.8;
+const STICK_RESPONSE = 4;
+/** Stick deflection per pixel, so a small move turns ~MOUSE_SENSITIVITY radians per pixel. */
+const STICK_PER_PIXEL = (MOUSE_SENSITIVITY * STICK_RECENTER) / STICK_TURN_RATE;
 const TOUCH_SENSITIVITY = 0.005;
 /** A finger must move this far (CSS px) before it steers, so resting it to boost doesn't. */
 const DRAG_THRESHOLD = 8;
@@ -202,6 +224,10 @@ export class FlightController {
   /** On-screen roll buttons (touch). */
   #rollLeft = false;
   #rollRight = false;
+  /** The mouse's flight stick (x yaws right, y pitches up; within the unit circle). */
+  readonly #stick = { x: 0, y: 0 };
+  /** The ship's current turn from the stick (radians per second). */
+  readonly #stickTurn = { yaw: 0, pitch: 0 };
   /**
    * Pointing the phone (VR-style "magic window"): the ship faces `reference × device`, where
    * `device` is the phone's latest orientation. `reference` is fixed when tracking starts so the
@@ -256,6 +282,7 @@ export class FlightController {
     this.#active = true;
     this.#orientation.copy(this.#camera.quaternion);
     this.#velocity.set(0, 0, 0);
+    this.#centreStick();
     this.#device = null;
     this.#bind();
     this.#wantsLock = lockPointer && matchMedia("(pointer: fine)").matches;
@@ -271,6 +298,7 @@ export class FlightController {
     this.#vr = { input: { thrust: 0, strafe: 0, turn: 0, boost: false }, gaze: new Quaternion() };
     // The headset does the looking now.
     this.#device = null;
+    this.#centreStick();
     this.#drag = null;
     if (document.pointerLockElement === this.#canvas) document.exitPointerLock();
   }
@@ -289,6 +317,7 @@ export class FlightController {
     this.#abort = null;
     this.#keys.clear();
     this.#touches.clear();
+    this.#centreStick();
     this.#rollLeft = false;
     this.#rollRight = false;
     this.#drag = null;
@@ -312,15 +341,19 @@ export class FlightController {
     const keys = this.#keys;
     this.#followDevice(delta);
 
-    // Steering: arrow keys and roll turn at a rate; mouse, drag and device pointing are direct.
+    // Steering: arrow keys, roll and the captured mouse (a flight stick) turn at a rate;
+    // dragging and device pointing are direct.
     const keyYaw = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
     const keyPitch = (keys.has("ArrowUp") ? 1 : 0) - (keys.has("ArrowDown") ? 1 : 0);
     const keyRoll =
       (keys.has("KeyE") || this.#rollRight ? 1 : 0) - (keys.has("KeyQ") || this.#rollLeft ? 1 : 0);
     const vr = this.#vr;
+    const stickTurn = this.#flyStick(delta);
     this.#turn(
-      keyYaw * KEY_TURN_RATE * delta + (vr ? vr.input.turn * VR_TURN_RATE * delta : 0),
-      keyPitch * KEY_TURN_RATE * delta,
+      keyYaw * KEY_TURN_RATE * delta +
+        (vr ? vr.input.turn * VR_TURN_RATE * delta : 0) +
+        stickTurn.yaw * delta,
+      keyPitch * KEY_TURN_RATE * delta + stickTurn.pitch * delta,
       keyRoll * ROLL_RATE * delta,
     );
 
@@ -359,7 +392,15 @@ export class FlightController {
       speedScale(this.#nearestGap, this.#nearestRadius) * (1 + (LEAVE_SPEEDUP - 1) * leaving),
       MAX_SPEED_SCALE,
     );
-    const drag = DRAG * (1 + (LEAVE_RESPONSE - 1) * leaving);
+    const openSpace = MathUtils.smoothstep(
+      this.#nearestGap / this.#nearestRadius,
+      OPEN_SPACE_FROM,
+      OPEN_SPACE_TO,
+    );
+    const drag =
+      DRAG *
+      (1 + (LEAVE_RESPONSE - 1) * leaving) *
+      MathUtils.lerp(1, OPEN_SPACE_RESPONSE, openSpace);
     const topSpeed = (boosting ? BOOST_SPEED : CRUISE_SPEED) * scale;
     // Thrust balances drag exactly at top speed: a = v·drag.
     thrust.multiplyScalar(topSpeed * drag);
@@ -393,6 +434,38 @@ export class FlightController {
       }
     }
     return Math.max(0, gap);
+  }
+
+  /** Push the mouse's flight stick by a mouse movement (pixels; y up). */
+  #deflectStick(dx: number, dy: number): void {
+    const stick = this.#stick;
+    stick.x += dx * STICK_PER_PIXEL;
+    stick.y += dy * STICK_PER_PIXEL;
+    const length = Math.hypot(stick.x, stick.y);
+    if (length > 1) {
+      stick.x /= length;
+      stick.y /= length;
+    }
+  }
+
+  #centreStick(): void {
+    this.#stick.x = this.#stick.y = 0;
+    this.#stickTurn.yaw = this.#stickTurn.pitch = 0;
+  }
+
+  /** This frame's turn rate from the mouse's flight stick, which then drifts back to centre. */
+  #flyStick(delta: number): { yaw: number; pitch: number } {
+    const stick = this.#stick;
+    const turn = this.#stickTurn;
+    const ease = 1 - Math.exp(-STICK_RESPONSE * delta);
+    turn.yaw += (stick.x * STICK_TURN_RATE - turn.yaw) * ease;
+    turn.pitch += (stick.y * STICK_TURN_RATE - turn.pitch) * ease;
+    const recenter = Math.exp(-STICK_RECENTER * delta);
+    stick.x *= recenter;
+    stick.y *= recenter;
+    // Settle exactly, rather than turning imperceptibly forever.
+    if (Math.hypot(stick.x, stick.y, turn.yaw, turn.pitch) < 1e-4) this.#centreStick();
+    return turn;
   }
 
   /** Straight ahead (cameras look down their local −z). */
@@ -488,7 +561,7 @@ export class FlightController {
       "mousemove",
       (event) => {
         if (this.#vr || document.pointerLockElement !== canvas) return;
-        this.#turn(event.movementX * MOUSE_SENSITIVITY, -event.movementY * MOUSE_SENSITIVITY);
+        this.#deflectStick(event.movementX, -event.movementY);
       },
       { signal },
     );

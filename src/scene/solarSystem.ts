@@ -42,12 +42,15 @@ import {
   createComaMaterial,
   createCometDustMaterial,
   createCometTailMaterial,
+  createHaloMaterial,
   createRingMaterial,
   createRingUniforms,
   createRockyMaterial,
   type CometDustUniforms,
   type CometUniforms,
+  type HaloOptions,
   type LightingUniforms,
+  haloShell,
 } from "./materials.ts";
 import type { BodyId } from "./bodies.ts";
 import {
@@ -86,6 +89,8 @@ interface PlanetSpec {
   oblateness?: number;
   surface: "rocky" | "cloudy";
   rim?: Color;
+  /** Haze glowing beyond the limb (none for airless bodies). */
+  halo?: HaloOptions;
   limbDarkening?: number;
   rings?: { url: string; inner: number; outer: number };
 }
@@ -109,6 +114,8 @@ const PLANETS: readonly PlanetSpec[] = [
     spin: 0.6,
     surface: "cloudy",
     rim: new Color(0.35, 0.3, 0.18),
+    // Thick, high sulphuric-acid haze: the brightest halo, pale yellow.
+    halo: { color: new Color(0.42, 0.36, 0.24), height: 0.012 },
     limbDarkening: 0.15,
   },
   {
@@ -119,6 +126,8 @@ const PLANETS: readonly PlanetSpec[] = [
     spin: 3,
     surface: "rocky",
     rim: new Color(0.12, 0.07, 0.05),
+    // Thin and dusty: just a faint butterscotch line.
+    halo: { color: new Color(0.16, 0.12, 0.1), height: 0.006 },
   },
   {
     id: "jupiter",
@@ -129,6 +138,7 @@ const PLANETS: readonly PlanetSpec[] = [
     oblateness: 0.935,
     surface: "cloudy",
     rim: new Color(0.06, 0.05, 0.04),
+    halo: { color: new Color(0.12, 0.11, 0.09), height: 0.004 },
   },
   {
     id: "saturn",
@@ -140,6 +150,7 @@ const PLANETS: readonly PlanetSpec[] = [
     oblateness: 0.9,
     surface: "cloudy",
     rim: new Color(0.05, 0.045, 0.03),
+    halo: { color: new Color(0.11, 0.1, 0.07), height: 0.005 },
     rings: { url: saturnRingUrl, inner: 1.24, outer: 2.27 },
   },
   {
@@ -151,6 +162,8 @@ const PLANETS: readonly PlanetSpec[] = [
     spin: 4,
     surface: "cloudy",
     rim: new Color(0.1, 0.2, 0.22),
+    // Methane haze scatters blue-green.
+    halo: { color: new Color(0.12, 0.24, 0.27), height: 0.007 },
     limbDarkening: 0.2,
   },
   {
@@ -161,6 +174,7 @@ const PLANETS: readonly PlanetSpec[] = [
     spin: 4,
     surface: "cloudy",
     rim: new Color(0.06, 0.12, 0.3),
+    halo: { color: new Color(0.08, 0.16, 0.36), height: 0.007 },
     limbDarkening: 0.25,
   },
 ];
@@ -312,6 +326,15 @@ export const createSolarSystem = (load: TextureLoad, lighting: LightingUniforms)
     planet.scale.y = spec.oblateness ?? 1;
     system.add(planet);
     group.add(system);
+    if (spec.halo) {
+      // A child of the planet, so it takes on its flattening.
+      planet.add(
+        new Mesh(
+          new SphereGeometry(radius * haloShell(spec.halo.height), 64, 32),
+          createHaloMaterial(lighting, radius, spec.halo),
+        ),
+      );
+    }
     spinners.push({ mesh: planet, speed: spec.spin, home: planet.rotation.y });
     targets.set(spec.id, {
       radius,

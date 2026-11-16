@@ -25,6 +25,8 @@ import atmosphereVert from "./shaders/atmosphere.vert.glsl?raw";
 import atmosphereFrag from "./shaders/atmosphere.frag.glsl?raw";
 import rockyFrag from "./shaders/rocky.frag.glsl?raw";
 import cloudyPlanetFrag from "./shaders/cloudyPlanet.frag.glsl?raw";
+import haloVert from "./shaders/halo.vert.glsl?raw";
+import haloFrag from "./shaders/halo.frag.glsl?raw";
 import ringVert from "./shaders/ring.vert.glsl?raw";
 import ringFrag from "./shaders/ring.frag.glsl?raw";
 import skyVert from "./shaders/sky.vert.glsl?raw";
@@ -211,6 +213,41 @@ export const createCloudyPlanetMaterial = (
     defines: ring ? { HAS_RING: "" } : {},
     vertexShader: sphereVert,
     fragmentShader: glsl(COMMON, RIM, SPHERE_VARYINGS, cloudyPlanetFrag),
+  });
+
+export interface HaloOptions {
+  /** Glow colour at the sunlit limb (HDR; keep it low, it's added on top of the sky). */
+  color: Color;
+  /** Scale height as a fraction of the planet radius: how far the haze reaches. */
+  height: number;
+}
+
+/** Shell radius for a halo, as a multiple of the planet radius (where the haze has faded). */
+export const haloShell = (height: number): number => 1 + 5 * height;
+
+/**
+ * Faint atmospheric haze beyond the limb of a planet, computed analytically (no ray march).
+ * Draw it on a sphere of `haloShell(height)` × `radius`, parented to the planet.
+ */
+export const createHaloMaterial = (
+  lighting: LightingUniforms,
+  radius: number,
+  { color, height }: HaloOptions,
+): ShaderMaterial =>
+  new ShaderMaterial({
+    uniforms: {
+      ...lighting,
+      uColor: { value: color },
+      uRadius: { value: radius },
+      uHeight: { value: height },
+      uShell: { value: haloShell(height) },
+    },
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    side: BackSide,
+    vertexShader: haloVert,
+    fragmentShader: haloFrag,
   });
 
 export const createRingMaterial = (
