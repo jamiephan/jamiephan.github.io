@@ -47,6 +47,7 @@ import spaceDustFrag from "./shaders/spaceDust.frag.glsl?raw";
 import dustStreakVert from "./shaders/dustStreak.vert.glsl?raw";
 import dustStreakFrag from "./shaders/dustStreak.frag.glsl?raw";
 import earthNightFrag from "./shaders/earthNight.frag.glsl?raw";
+import auroraFrag from "./shaders/aurora.frag.glsl?raw";
 
 /** Shared uniform objects: updating `.value` once updates every material that uses them. */
 export interface LightingUniforms {
@@ -566,13 +567,12 @@ export const createDustStreakMaterial = (
   });
 
 /* ---------------------------------------------------------------------------------------------
- * Earth's night side: aurorae and thunderstorms
+ * Earth's night side: thunderstorms and aurorae
  * ------------------------------------------------------------------------------------------- */
 
 /**
  * A thin additive shell just above the clouds (a child of the cloud mesh, so it shares their
- * UVs). On the night side it shows auroral ovals around the magnetic poles, rippling slowly,
- * and scattered thunderstorms flickering inside the cloud tops.
+ * UVs). On the night side it shows scattered thunderstorms flickering inside the cloud tops.
  */
 export const createEarthNightMaterial = (
   clouds: Texture,
@@ -587,4 +587,33 @@ export const createEarthNightMaterial = (
     blending: AdditiveBlending,
     vertexShader: sphereVert,
     fragmentShader: glsl(COMMON, SPHERE_VARYINGS, NOISE, earthNightFrag),
+  });
+
+/**
+ * Aurorae with real height: curtains ray-marched through the layer between `bottom` and `top`
+ * (multiples of the Earth's radius) around both magnetic poles, on the night side. Draw it on
+ * a sphere of radius `top` parented to the Earth, front faces from outside and back faces from
+ * inside (as with the atmosphere). The step count scales with the path through the layer.
+ */
+export const createAuroraMaterial = (
+  lighting: LightingUniforms,
+  radius: number,
+  { bottom, top }: { bottom: number; top: number },
+  time: { value: number },
+): ShaderMaterial =>
+  new ShaderMaterial({
+    uniforms: {
+      uSunDir: lighting.uSunDir,
+      uRadius: { value: radius },
+      uBottom: { value: bottom },
+      uTop: { value: top },
+      uIntensity: { value: 70 },
+      uTime: time,
+    },
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    defines: { MAX_STEPS: 64, MIN_STEPS: 8 },
+    vertexShader: haloVert,
+    fragmentShader: glsl(COMMON, NOISE, auroraFrag),
   });

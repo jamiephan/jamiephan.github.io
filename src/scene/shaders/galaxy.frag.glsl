@@ -83,7 +83,8 @@ void main() {
   if (uRing > 0.0) {
     // A ring of young, blue stars (and pink star-forming knots), as in Hoag's Object or the
     // Cartwheel: a wave of star formation spreading out from the centre.
-    float ring = exp(-pow((r - uRing) / 0.06, 2.0));
+    float fromRing = (r - uRing) / 0.06;
+    float ring = exp(-fromRing * fromRing);
     light += uDisc * ring * (0.5 + 1.0 * grain) * 1.2;
     float knots = smoothstep(0.6, 0.8, fbm(vec3(p * 18.0, uSeed + 9.0)));
     light += vec3(1.0, 0.4, 0.6) * ring * knots * 1.8;

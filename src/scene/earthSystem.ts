@@ -1,5 +1,5 @@
 /**
- * The Earth (surface, clouds, night-side aurorae and storms, ray-marched atmosphere) and the
+ * The Earth (surface, clouds, night-side storms, ray-marched atmosphere and aurorae) and the
  * Moon, tidally locked on its tilted orbit. The Earth sits at the origin (see `layout.ts`).
  */
 import {
@@ -26,6 +26,7 @@ import type { BodyId } from "./bodies.ts";
 import { EARTH_RADIUS } from "./layout.ts";
 import {
   createAtmosphereMaterial,
+  createAuroraMaterial,
   createCloudMaterial,
   createEarthMaterial,
   createEarthNightMaterial,
@@ -38,9 +39,11 @@ import type { FocusTarget } from "./solarSystem.ts";
 
 /** Real size ratios (see `layout.ts`); distances are compressed. */
 const CLOUD_RADIUS = EARTH_RADIUS * 1.006;
-/** The aurora / thunderstorm shell sits just above the clouds. */
+/** The thunderstorm shell sits just above the clouds. */
 const NIGHT_SHELL_RADIUS = EARTH_RADIUS * 1.012;
 const ATMOSPHERE_RADIUS = EARTH_RADIUS * 1.035;
+/** Aurorae glow between these heights (multiples of the radius; exaggerated like the air). */
+const AURORA = { bottom: 1.012, top: 1.05 };
 const EARTH_AXIAL_TILT = degToRad(23.44);
 const MOON_RADIUS = EARTH_RADIUS * 0.273;
 const MOON_ORBIT_RADIUS = 14;
@@ -111,13 +114,21 @@ export const createEarthSystem = (
   clouds.renderOrder = 1;
   earth.add(clouds);
 
-  // Aurorae and thunderstorms on the night side, riding with the clouds (and their UVs).
+  // Thunderstorms on the night side, riding with the clouds (and their UVs).
   const nightShell = new Mesh(
     new SphereGeometry(NIGHT_SHELL_RADIUS, 96, 48),
     createEarthNightMaterial(textures.clouds, lighting, effects.time, effects.flashes),
   );
   nightShell.renderOrder = 1.5;
   clouds.add(nightShell);
+
+  // Auroral curtains around the magnetic poles (which turn with the Earth, not the clouds).
+  const aurora = new Mesh(
+    new SphereGeometry(EARTH_RADIUS * AURORA.top, 64, 32),
+    createAuroraMaterial(lighting, EARTH_RADIUS, AURORA, effects.time),
+  );
+  aurora.renderOrder = 2.5;
+  earth.add(aurora);
   tilt.add(earth);
 
   const atmosphere = new Mesh(
@@ -209,8 +220,11 @@ export const createEarthSystem = (
 
       // Inside the atmosphere its outer faces point away from the camera; draw the inner ones.
       // (The shader marches from the camera either way, so the result is the same.)
-      (atmosphere.material as Material).side =
-        cameraPosition.length() < ATMOSPHERE_RADIUS ? BackSide : FrontSide;
+      // Likewise for the aurora's shell.
+      const distance = cameraPosition.length();
+      (atmosphere.material as Material).side = distance < ATMOSPHERE_RADIUS ? BackSide : FrontSide;
+      (aurora.material as Material).side =
+        distance < EARTH_RADIUS * AURORA.top ? BackSide : FrontSide;
     },
   };
 };
