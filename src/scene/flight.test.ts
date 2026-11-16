@@ -1,6 +1,6 @@
 import { Quaternion, Vector3 } from "three";
 import { describe, expect, it } from "vite-plus/test";
-import { deviceQuaternion, sweepSphere } from "./flight.ts";
+import { deviceQuaternion, speedScale, sweepSphere } from "./flight.ts";
 
 const origin = new Vector3(0, 0, 0);
 
@@ -56,5 +56,26 @@ describe("deviceQuaternion", () => {
       deviceQuaternion(0, 0, -90, 90, new Quaternion()),
     );
     expect(up.y).toBeCloseTo(1);
+  });
+});
+
+describe("speedScale", () => {
+  it("grows in proportion to the gap close to a surface", () => {
+    expect(speedScale(0.08, 40) / speedScale(0.04, 40)).toBeCloseTo(2, 1);
+  });
+
+  it("grows faster than the gap higher up", () => {
+    expect(speedScale(20, 4) / speedScale(10, 4)).toBeGreaterThan(3);
+  });
+
+  it("climbs the same way at any size of body, relative to its radius", () => {
+    const small = speedScale(0.5, 1) / speedScale(0.25, 1);
+    const large = speedScale(5, 10) / speedScale(2.5, 10);
+    expect(small).toBeCloseTo(large);
+  });
+
+  it("stays within its limits", () => {
+    expect(speedScale(0, 4)).toBeGreaterThan(0);
+    expect(speedScale(1e6, 4)).toBe(speedScale(1e7, 4));
   });
 });

@@ -22,15 +22,44 @@ const BOOST_SPEED = 80;
 /**
  * Speed scales with the gap to the nearest surface, like the throttle of a ship in a space
  * sim: crawling near a planet so it towers overhead, racing across the empty space between.
- * Top speed is multiplied by gap / SPEED_GAP, clamped to this range.
+ *
+ * Low down, top speed is proportional to the gap: SPEED_GAP / CRUISE_SPEED is how many seconds
+ * the ship takes to cover its own height above a surface, which is what sets how big the ship
+ * feels (too quick and it seems a giant skimming a ball). Twelve seconds cruising (three on
+ * boost) keeps it small next to the planets.
+ *
+ * Higher up, where that cue fades, speed grows with the square of the gap instead, from a
+ * height of CLIMB_HEIGHT × the body's radius. Being relative to the body, climbing away to full
+ * speed takes the same time at every planet and moon (about 20 s on boost from skimming the
+ * surface, about 1 s from a radius up).
  */
-const SPEED_GAP = 40;
-// Near a surface the ship crawls (~30 km/s cruising low over the Earth), so planets feel
-// enormous; far from everything it can outrun light (~2.5 c on boost).
-const MIN_SPEED_SCALE = 0.001;
-const MAX_SPEED_SCALE = 6;
+const SPEED_GAP = 240;
+const CLIMB_HEIGHT = 0.19;
+// Near a surface the ship crawls (~5 km/s cruising low over the Earth), so planets feel
+// enormous; far from everything it can outrun light (~1.8 c on boost).
+const MIN_SPEED_SCALE = 0.0001;
+const MAX_SPEED_SCALE = 4.2;
+
+/**
+ * What top speed is multiplied by at `gap` units from the surface of the nearest body, whose
+ * radius is `radius`.
+ */
+export const speedScale = (gap: number, radius: number): number =>
+  MathUtils.clamp(
+    (gap / SPEED_GAP) * (1 + gap / (radius * CLIMB_HEIGHT)),
+    MIN_SPEED_SCALE,
+    MAX_SPEED_SCALE,
+  );
 /** How fast excess speed bleeds off when the limit drops (per second), so you can't crash. */
 const OVERSPEED_DRAG = 3;
+/**
+ * Heading straight away from the nearest body, the speed limit is this many times higher and
+ * speed builds this many times faster, so climbing off a surface takes seconds (~6 s from
+ * skimming it to full boost, rather than ~20 s) while approaching and skimming stay slow.
+ * Partly away gets part of the lift.
+ */
+const LEAVE_SPEEDUP = 4;
+const LEAVE_RESPONSE = 3;
 /** Radians of turn per pixel of mouse movement or drag. */
 const MOUSE_SENSITIVITY = 0.0025;
 const TOUCH_SENSITIVITY = 0.005;
@@ -151,6 +180,7 @@ export class FlightController {
   readonly #scratch = new Vector3();
   readonly #from = new Vector3();
   readonly #move = new Vector3();
+  readonly #outward = new Vector3();
   /** The ship's orientation (the camera's), turned about its own axes. */
   readonly #orientation = new Quaternion();
   readonly #step = new Quaternion();
@@ -163,6 +193,9 @@ export class FlightController {
   #wantsLock = false;
   /** Distance to the nearest body's surface, as of the last update. */
   #nearestGap = Infinity;
+  /** Radius and centre of the body that gap is to. */
+  #nearestRadius = 1;
+  readonly #nearestCentre = new Vector3();
   #abort: AbortController | null = null;
   /** Fingers held on the scene (touch): holding anywhere boosts. */
   readonly #touches = new Set<number>();
@@ -313,15 +346,27 @@ export class FlightController {
 
     const thrust = this.#thrust.copy(forward).multiplyScalar(ahead).addScaledVector(right, side);
     if (thrust.lengthSq() > 1) thrust.normalize();
-    // Thrust balances drag exactly at top speed: a = v·drag.
     this.#nearestGap = this.#gapAt(this.#camera.position);
-    const scale = MathUtils.clamp(this.#nearestGap / SPEED_GAP, MIN_SPEED_SCALE, MAX_SPEED_SCALE);
+    // How directly the ship is heading away from the nearest body (0–1): by where it's
+    // thrusting, or where it's coasting when it isn't.
+    const outward = this.#outward.subVectors(this.#camera.position, this.#nearestCentre);
+    const going = thrust.lengthSq() > 0 ? thrust : this.#velocity;
+    const leaving =
+      going.lengthSq() > 0 && outward.lengthSq() > 0
+        ? Math.max(0, going.dot(outward) / Math.sqrt(going.lengthSq() * outward.lengthSq()))
+        : 0;
+    const scale = Math.min(
+      speedScale(this.#nearestGap, this.#nearestRadius) * (1 + (LEAVE_SPEEDUP - 1) * leaving),
+      MAX_SPEED_SCALE,
+    );
+    const drag = DRAG * (1 + (LEAVE_RESPONSE - 1) * leaving);
     const topSpeed = (boosting ? BOOST_SPEED : CRUISE_SPEED) * scale;
-    thrust.multiplyScalar(topSpeed * DRAG);
+    // Thrust balances drag exactly at top speed: a = v·drag.
+    thrust.multiplyScalar(topSpeed * drag);
 
     // Thrust against drag: speed settles at a top speed instead of growing forever.
     const velocity = this.#velocity.addScaledVector(thrust, delta);
-    velocity.multiplyScalar(Math.exp(-DRAG * delta));
+    velocity.multiplyScalar(Math.exp(-drag * delta));
     // Approaching a body lowers the limit; shed the excess quickly but smoothly.
     const limit = BOOST_SPEED * scale;
     const speed = velocity.length();
@@ -336,11 +381,16 @@ export class FlightController {
     this.#camera.quaternion.copy(this.#orientation);
   }
 
-  /** Distance from `point` to the nearest body's surface. */
+  /** Distance from `point` to the nearest body's surface (and note that body's size and place). */
   #gapAt(point: Vector3): number {
     let gap = Infinity;
     for (const { radius, getPosition } of this.#obstacles()) {
-      gap = Math.min(gap, getPosition(this.#scratch).distanceTo(point) - radius);
+      const distance = getPosition(this.#scratch).distanceTo(point) - radius;
+      if (distance < gap) {
+        gap = distance;
+        this.#nearestRadius = radius;
+        this.#nearestCentre.copy(this.#scratch);
+      }
     }
     return Math.max(0, gap);
   }
