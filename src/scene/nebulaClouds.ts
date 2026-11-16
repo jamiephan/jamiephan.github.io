@@ -134,6 +134,42 @@ export const NEBULA_CLOUDS: readonly NebulaCloudSpec[] = [
     intensity: 0.024,
     seed: 79,
   },
+  // High above the solar system: a gold-and-teal pillar-studded cloud (like the Eagle Nebula)
+  // nearly overhead, and a smaller magenta one off to the side.
+  {
+    centre: [200, 300, 1700],
+    size: 560,
+    primary: [1.0, 0.62, 0.28],
+    secondary: [0.2, 0.78, 0.75],
+    flash: [1.0, 0.95, 0.8],
+    puffs: 170,
+    clumps: 8,
+    intensity: 0.03,
+    seed: 83,
+  },
+  {
+    centre: [-900, -200, 1500],
+    size: 460,
+    primary: [0.95, 0.3, 0.75],
+    secondary: [0.35, 0.45, 1.0],
+    flash: [0.95, 0.85, 1.0],
+    puffs: 130,
+    clumps: 6,
+    intensity: 0.032,
+    seed: 89,
+  },
+  // Far below: blue starlight reflecting off dust, with red hydrogen at its edges.
+  {
+    centre: [-500, -350, -1750],
+    size: 520,
+    primary: [0.3, 0.5, 1.0],
+    secondary: [1.0, 0.3, 0.4],
+    flash: [0.85, 0.9, 1.0],
+    puffs: 150,
+    clumps: 7,
+    intensity: 0.03,
+    seed: 97,
+  },
 ];
 
 export interface NebulaPuffs {

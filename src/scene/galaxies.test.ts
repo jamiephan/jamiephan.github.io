@@ -28,4 +28,11 @@ describe("GALAXIES", () => {
       }
     }
   });
+
+  it("fill the sky overhead and underneath too, not just round the horizon", () => {
+    const elevation = ([x, y, z]: readonly number[]) =>
+      (Math.asin(z! / Math.hypot(x!, y!, z!)) * 180) / Math.PI;
+    expect(GALAXIES.filter((g) => elevation(g.direction) > 55).length).toBeGreaterThanOrEqual(4);
+    expect(GALAXIES.filter((g) => elevation(g.direction) < -55).length).toBeGreaterThanOrEqual(4);
+  });
 });

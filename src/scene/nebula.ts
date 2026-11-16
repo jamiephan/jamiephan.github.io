@@ -108,6 +108,26 @@ export const NEBULAE: readonly NebulaSpec[] = [
     intensity: 0.1,
     dust: 0.4,
   },
+  // Far from the plane, faint wisps of dusty cirrus lit by the whole galaxy (like the
+  // "integrated flux nebula"): one straight overhead in the default view, one straight below.
+  {
+    longitude: -79,
+    latitude: 52,
+    radius: 16,
+    primary: REFLECTION_BLUE,
+    secondary: [0.85, 0.45, 0.75],
+    intensity: 0.11,
+    dust: 0.55,
+  },
+  {
+    longitude: 101,
+    latitude: -50,
+    radius: 15,
+    primary: HYDROGEN_ALPHA,
+    secondary: OXYGEN_III,
+    intensity: 0.12,
+    dust: 0.45,
+  },
 ];
 
 /** Values are stored square-rooted in 8 bits (less banding in the dark); this is full scale. */
