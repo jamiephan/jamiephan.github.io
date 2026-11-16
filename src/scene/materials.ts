@@ -17,7 +17,8 @@ import {
   Vector4,
   type Texture,
 } from "three";
-import { COMMON, DUST_VERTEX, NOISE, RIM, SPHERE_VARYINGS, glsl } from "./shaders/chunks.ts";
+import { COMMON, DUST_VERTEX, NOISE, RIM, SPHERE_VARYINGS, ULTRA, glsl } from "./shaders/chunks.ts";
+import { ultraUniforms } from "./ultraTextures.ts";
 import sphereVert from "./shaders/sphere.vert.glsl?raw";
 import earthFrag from "./shaders/earth.frag.glsl?raw";
 import cloudFrag from "./shaders/cloud.frag.glsl?raw";
@@ -83,12 +84,17 @@ export const createEarthMaterial = (
       uNormal: { value: textures.normal },
       uSpecular: { value: textures.specular },
       uClouds: { value: textures.clouds },
+      ...ultraUniforms("uDay", textures.day),
+      ...ultraUniforms("uNight", textures.night),
+      ...ultraUniforms("uNormal", textures.normal),
+      ...ultraUniforms("uSpecular", textures.specular),
+      ...ultraUniforms("uClouds", textures.clouds),
       uCloudOffset: { value: 0 },
       uNormalStrength: { value: 1.6 },
       uOccluder: occluder,
     },
     vertexShader: sphereVert,
-    fragmentShader: glsl(COMMON, SPHERE_VARYINGS, earthFrag),
+    fragmentShader: glsl(COMMON, SPHERE_VARYINGS, ULTRA, earthFrag),
   });
 
 export const createCloudMaterial = (
@@ -97,12 +103,17 @@ export const createCloudMaterial = (
   occluder: { value: Vector4 },
 ): ShaderMaterial =>
   new ShaderMaterial({
-    uniforms: { ...lighting, uClouds: { value: clouds }, uOccluder: occluder },
+    uniforms: {
+      ...lighting,
+      uClouds: { value: clouds },
+      ...ultraUniforms("uClouds", clouds),
+      uOccluder: occluder,
+    },
     transparent: true,
     depthWrite: false,
     blending: NormalBlending,
     vertexShader: sphereVert,
-    fragmentShader: glsl(COMMON, SPHERE_VARYINGS, cloudFrag),
+    fragmentShader: glsl(COMMON, SPHERE_VARYINGS, ULTRA, cloudFrag),
   });
 
 /**
@@ -163,13 +174,14 @@ export const createRockyMaterial = (
     uniforms: {
       ...lighting,
       uMap: { value: map },
+      ...ultraUniforms("uMap", map),
       uBump: { value: bump },
       uOccluder: occluder,
       uAmbient: { value: ambient },
       uRim: { value: rim },
     },
     vertexShader: sphereVert,
-    fragmentShader: glsl(COMMON, RIM, SPHERE_VARYINGS, rockyFrag),
+    fragmentShader: glsl(COMMON, RIM, SPHERE_VARYINGS, ULTRA, rockyFrag),
   });
 
 export interface RingUniforms {
@@ -209,13 +221,14 @@ export const createCloudyPlanetMaterial = (
       ...lighting,
       ...ring,
       uMap: { value: map },
+      ...ultraUniforms("uMap", map),
       uRim: { value: rim },
       uLimbDarkening: { value: limbDarkening },
       uAlbedo: { value: albedo },
     },
     defines: ring ? { HAS_RING: "" } : {},
     vertexShader: sphereVert,
-    fragmentShader: glsl(COMMON, RIM, SPHERE_VARYINGS, cloudyPlanetFrag),
+    fragmentShader: glsl(COMMON, RIM, SPHERE_VARYINGS, ULTRA, cloudyPlanetFrag),
   });
 
 export interface HaloOptions {

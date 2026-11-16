@@ -47,3 +47,36 @@ for (const [path, url] of Object.entries(full)) {
 
 /** The HD version of a full-resolution texture URL, if there is one. */
 export const hdFor = (url: string): string | undefined => hdByUrl.get(url);
+
+/**
+ * Maps with an ultra-HD tier: 16384×8192, upscaled with Real-ESRGAN and cut into 1024² tiles in
+ * `public/textures/ultra/<name>/<col>-<row>.webp` (row 0 at the top). Too many files to bundle,
+ * so they're served as they are. The scene streams in a few tiles around the point being looked
+ * at, close up; see `ultraTextures.ts`.
+ */
+export const ULTRA_MAPS: readonly string[] = [
+  "earth-day",
+  "earth-night",
+  "earth-clouds",
+  "earth-normal",
+  "earth-specular",
+  "moon",
+  "mercury",
+  "venus",
+  "mars",
+  "jupiter",
+  "saturn",
+  "uranus",
+  "neptune",
+];
+
+const ultraByUrl = new Map<string, string>();
+for (const [path, url] of Object.entries(full)) {
+  const name = fileName(path).replace(/\.\w+$/, "");
+  if (ULTRA_MAPS.includes(name)) {
+    ultraByUrl.set(url, `${import.meta.env.BASE_URL}textures/ultra/${name}/`);
+  }
+}
+
+/** The folder (URL ending in `/`) of the ultra-HD tiles for a full-resolution texture URL. */
+export const ultraFor = (url: string): string | undefined => ultraByUrl.get(url);

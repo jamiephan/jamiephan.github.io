@@ -9,6 +9,7 @@ import grainParsGlsl from "./chunks/grainPars.glsl?raw";
 import noiseGlsl from "./chunks/noise.glsl?raw";
 import rimGlsl from "./chunks/rim.glsl?raw";
 import sphereVaryingsGlsl from "./chunks/sphereVaryings.glsl?raw";
+import ultraGlsl from "./chunks/ultra.glsl?raw";
 
 /** Joins GLSL sources in order (chunks first, then the shader's own code). */
 export const glsl = (...parts: string[]): string => parts.join("\n");
@@ -21,6 +22,8 @@ export const NOISE = noiseGlsl;
 export const RIM = rimGlsl;
 /** Fragment-side varyings written by `sphere.vert.glsl`. */
 export const SPHERE_VARYINGS = sphereVaryingsGlsl;
+/** `ultraTexture`: a map with its ultra-HD window laid over it (needs `SPHERE_VARYINGS`). */
+export const ULTRA = ultraGlsl;
 /** Space dust vertex helpers (needs `COMMON` for `sphereShadow`). */
 export const DUST_VERTEX = glsl(COMMON, dustVertexGlsl);
 /** Film grain: declarations, and the statement that applies it at the end of `main`. */

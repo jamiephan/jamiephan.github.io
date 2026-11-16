@@ -3,6 +3,16 @@ uniform sampler2D uNight;
 uniform sampler2D uNormal;
 uniform sampler2D uSpecular;
 uniform sampler2D uClouds;
+uniform sampler2D uDayUltra;
+uniform vec4 uDayUltraRect;
+uniform sampler2D uNightUltra;
+uniform vec4 uNightUltraRect;
+uniform sampler2D uNormalUltra;
+uniform vec4 uNormalUltraRect;
+uniform sampler2D uSpecularUltra;
+uniform vec4 uSpecularUltraRect;
+uniform sampler2D uCloudsUltra;
+uniform vec4 uCloudsUltraRect;
 uniform float uCloudOffset;
 uniform float uNormalStrength;
 uniform vec3 uSunDir;
@@ -16,7 +26,7 @@ void main() {
   vec3 geoN = normalize(vWorldNormal);
 
   // Terrain relief from the normal map (oceans are flat).
-  vec3 tangentNormal = sphereTexture(uNormal, vec2(0.0)).xyz * 2.0 - 1.0;
+  vec3 tangentNormal = ultraTexture(uNormal, uNormalUltra, uNormalUltraRect, vec2(0.0)).xyz * 2.0 - 1.0;
   tangentNormal.xy *= uNormalStrength;
   vec3 N = normalize(mat3(modelMatrix) * perturbSphereNormal(normalize(vObjNormal), tangentNormal));
 
@@ -26,9 +36,9 @@ void main() {
   float dayMask = smoothstep(-0.05, 0.12, geoNdL);
 
   // Slightly deepen the satellite mosaic: darker oceans, deserts that don't clip.
-  vec3 albedo = pow(sphereTexture(uDay, vec2(0.0)).rgb, vec3(1.15)) * 0.85;
-  float ocean = sphereTexture(uSpecular, vec2(0.0)).r;
-  float cloud = sphereTexture(uClouds, vec2(uCloudOffset, 0.0)).r;
+  vec3 albedo = pow(ultraTexture(uDay, uDayUltra, uDayUltraRect, vec2(0.0)).rgb, vec3(1.15)) * 0.85;
+  float ocean = ultraTexture(uSpecular, uSpecularUltra, uSpecularUltraRect, vec2(0.0)).r;
+  float cloud = ultraTexture(uClouds, uCloudsUltra, uCloudsUltraRect, vec2(uCloudOffset, 0.0)).r;
 
   // Clouds cast soft shadows; the Moon can eclipse the Sun.
   float shadow = (1.0 - 0.55 * cloud) * mix(0.15, 1.0, sphereShadow(vWorldPos, L, uOccluder));
@@ -48,7 +58,7 @@ void main() {
 
   // City lights on the night side, hidden under clouds.
   float night = 1.0 - smoothstep(-0.2, 0.08, geoNdL);
-  vec3 lights = sphereTexture(uNight, vec2(0.0)).rgb;
+  vec3 lights = ultraTexture(uNight, uNightUltra, uNightUltraRect, vec2(0.0)).rgb;
   color += lights * vec3(1.0, 0.82, 0.6) * 1.4 * night * (1.0 - 0.8 * cloud);
 
   // Faint earthshine / ambient so the night side is never pure black.

@@ -58,7 +58,8 @@ import { degToRad, lerp, perFrameAt60, scrollProgress, wrappedOffset } from "./m
 import { DEFAULT_BODY, type BodyId } from "./bodies.ts";
 import { FlightController, type Obstacle } from "./flight.ts";
 import { createSolarSystem, type FocusTarget, type SolarSystem } from "./solarSystem.ts";
-import { hdFor, previewFor } from "./textures.ts";
+import { hdFor, previewFor, ultraFor } from "./textures.ts";
+import { UltraTextures } from "./ultraTextures.ts";
 import { HdTextures, replaceImage } from "./hdTextures.ts";
 import { isVRSupported, readVRInput } from "./xr.ts";
 import { NEBULA_RANGE, NebulaTexture } from "./nebula.ts";
@@ -74,6 +75,11 @@ import { generateStarfield, mulberry32 } from "./stars.ts";
 
 const MIN_DISTANCE = 25;
 const MAX_DISTANCE = 50;
+/** Explore-mode zoom limits: closest approach (× body radius) and furthest (× its view distance). */
+const ZOOM_MIN_RADII = 1.25;
+const ZOOM_MAX_VIEW = 4.5;
+/** Explore-mode zoom never caps below this distance. */
+const ZOOM_MAX_FLOOR = MAX_DISTANCE * 1.5;
 
 /** Real size ratios (see `layout.ts`); distances are compressed. */
 const CLOUD_RADIUS = EARTH_RADIUS * 1.006;
@@ -133,13 +139,22 @@ const FLIGHT_NEAR = { fraction: 0.2, min: 0.003, max: 0.5 };
 const DEFAULT_NEAR = 0.5;
 /**
  * HD level of detail, by a body's diameter on screen in device pixels. A 2K map spreads ~1,000
- * texels across the visible disc, so past that it starts to blur: switch to HD. Drop back only
- * well below, so hovering around the threshold doesn't load and release it over and over.
+ * texels across the visible disc, so past that it starts to blur; switching a little before (from
+ * 30% further away) means it's in by then. Drop back only well below, so hovering around the
+ * threshold doesn't load and release it over and over. (Size on screen goes as 1 / distance.)
  */
-const HD_LOD_PIXELS = { load: 1000, release: 650 };
+const HD_LOD_PIXELS = { load: 1000 / 1.3, release: 650 / 1.3 };
 /** HD maps are up to 8K wide: only on devices that take that size and have memory to spare. */
 const HD_TEXTURE_SIZE = 8192;
 const HD_MIN_DEVICE_MEMORY_GB = 4;
+/**
+ * Ultra-HD level of detail (16K maps, streamed in a window at a time), by the same measure. The
+ * HD map spreads ~4,000 texels across the disc, so switch to ultra well before that (from 44%
+ * further away: 20% twice over). It takes up to ~450 MB more GPU memory (the Earth's five
+ * maps), so only where there's plenty.
+ */
+const ULTRA_LOD_PIXELS = { load: 4000 / 1.44, release: 2800 / 1.44 };
+const ULTRA_MIN_DEVICE_MEMORY_GB = 8;
 
 /** Degrees per second. */
 const SPEED = {
@@ -235,6 +250,8 @@ export class SpaceScene {
   #pendingDetail: { texture: Texture; url: string }[] = [];
   /** Up-to-8K maps for the one body being looked at up close. */
   readonly #hd: HdTextures;
+  /** 16K maps, a window of tiles at a time, for the body flown or zoomed right up to. */
+  readonly #ultra: UltraTextures;
   readonly #resizeObserver: ResizeObserver;
   readonly #reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
   readonly #abort = new AbortController();
@@ -311,6 +328,8 @@ export class SpaceScene {
   readonly #frustum = new Frustum();
   readonly #frustumMatrix = new Matrix4();
   readonly #sphere = new Sphere();
+  readonly #ultraForward = new Vector3();
+  readonly #ultraPoint = new Vector3();
   /** The camera in its default (non-explore) pose, used to time the comet's orbit. */
   readonly #viewProbe = new PerspectiveCamera(60, 1, 0.5, CAMERA_FAR);
   readonly #focusPoint = new Vector3();
@@ -450,6 +469,13 @@ export class SpaceScene {
       (from, to) => this.#swapTexture(from, to),
       () => (this.#needsRender = true),
     );
+    // Browsers without `deviceMemory` (Firefox, Safari) include phones: leave them at HD.
+    this.#ultra = new UltraTextures(
+      hdCapable && (memory ?? 0) >= ULTRA_MIN_DEVICE_MEMORY_GB,
+      this.#renderer,
+      () => this.#createImageLoader(),
+      () => (this.#needsRender = true),
+    );
     const load = (
       url: string,
       {
@@ -475,6 +501,8 @@ export class SpaceScene {
       if (preview && (hdCapable || !hdSized)) this.#pendingDetail.push({ texture, url });
       const hd = body && hdFor(url);
       if (body && hd) this.#hd.register(texture, body, hd);
+      const ultra = body && ultraFor(url);
+      if (body && ultra) this.#ultra.register(texture, body, ultra);
       texture.colorSpace = color ? SRGBColorSpace : NoColorSpace;
       if (sharp) texture.anisotropy = anisotropy;
       // Globe maps wrap round in longitude. Clamping would draw a seam where u meets 0/1 (the
@@ -603,6 +631,7 @@ export class SpaceScene {
       dustStreaks,
       this.#vrRig,
     );
+    this.#ultra.bindFrames(this.#scene);
 
     this.#targets.set("earth", {
       radius: EARTH_RADIUS,
@@ -996,12 +1025,12 @@ export class SpaceScene {
       progress: this.#reducedMotion ? 1 : 0,
     };
     // Allow both the old and new distance while flying, so the controls don't clamp mid-way.
-    controls.minDistance = Math.min(controls.minDistance, target.radius * 1.5);
+    controls.minDistance = Math.min(controls.minDistance, target.radius * ZOOM_MIN_RADII);
     controls.maxDistance = Math.max(
       controls.maxDistance,
       fromDistance,
       toDistance,
-      target.viewDistance * 3,
+      target.viewDistance * ZOOM_MAX_VIEW,
     );
     this.#needsRender = true;
   }
@@ -1050,6 +1079,7 @@ export class SpaceScene {
       if (texture.image instanceof ImageBitmap) texture.image.close();
     }
     this.#hd.dispose();
+    this.#ultra.dispose();
     for (const { image } of this.#uploads) image.close();
     this.#nebula.dispose();
     this.#nebulaClouds.dispose();
@@ -1403,8 +1433,8 @@ export class SpaceScene {
   }
 
   #setDistanceLimits(target: FocusTarget): void {
-    this.#controls.minDistance = target.radius * 1.5;
-    this.#controls.maxDistance = Math.max(MAX_DISTANCE, target.viewDistance * 3);
+    this.#controls.minDistance = target.radius * ZOOM_MIN_RADII;
+    this.#controls.maxDistance = Math.max(ZOOM_MAX_FLOOR, target.viewDistance * ZOOM_MAX_VIEW);
   }
 
   #cameraDistance(): number {
@@ -1524,6 +1554,7 @@ export class SpaceScene {
     // Only explore and flight get close enough to need it (and VR has its own resolution).
     if (!this.#exploring || this.#renderer.xr.isPresenting) {
       this.#hd.setActive(null);
+      this.#ultra.update(null, null);
       return;
     }
     const camera = this.#camera;
@@ -1553,6 +1584,52 @@ export class SpaceScene {
     // The biggest body in view past the threshold; otherwise hold on to the current one until
     // it's well below it (turning away from it briefly doesn't release it).
     this.#hd.setActive(best?.id ?? (keepCurrent ? current : null));
+    this.#updateUltraBody();
+  }
+
+  /**
+   * Ultra HD for the HD body once it's bigger still on screen, centred on the point of its
+   * surface in the middle of the view.
+   */
+  #updateUltraBody(): void {
+    const body = this.#hd.active;
+    const threshold =
+      body === this.#ultra.active ? ULTRA_LOD_PIXELS.release : ULTRA_LOD_PIXELS.load;
+    const target = body && this.#targets.get(body);
+    if (!body || !target || this.#screenDiameter(body) < threshold) {
+      this.#ultra.update(null, null);
+      return;
+    }
+    // Where the line of sight meets the surface. If it misses, the point on it nearest to the
+    // body (only the direction from the body's centre matters); if the body is behind, the
+    // camera's own position.
+    const camera = this.#camera;
+    const forward = camera.getWorldDirection(this.#ultraForward);
+    const toCentre = this.#ultraPoint.subVectors(
+      target.getPosition(this.#scratch),
+      camera.position,
+    );
+    const along = toCentre.dot(forward);
+    const missSq = toCentre.lengthSq() - along * along;
+    const point = this.#ultraPoint.copy(camera.position);
+    if (along > 0) {
+      const hit = missSq < target.radius ** 2 ? Math.sqrt(target.radius ** 2 - missSq) : 0;
+      point.addScaledVector(forward, along - hit);
+    }
+    this.#ultra.update(body, point);
+  }
+
+  /** A body's diameter on screen in device pixels (Infinity from inside it). */
+  #screenDiameter(id: BodyId): number {
+    const target = this.#targets.get(id);
+    if (!target) return 0;
+    const camera = this.#camera;
+    const pixelsPerUnit =
+      this.#renderer.domElement.height / (2 * Math.tan(degToRad(camera.fov / 2)));
+    const distance = target.getPosition(this.#scratch).distanceTo(camera.position);
+    return distance <= target.radius
+      ? Infinity
+      : (2 * pixelsPerUnit * target.radius) / Math.sqrt(distance ** 2 - target.radius ** 2);
   }
 
   /** Bake one strip of whichever nebula texture isn't finished yet. */
@@ -1603,6 +1680,7 @@ export class SpaceScene {
     this.#stepBakes();
     this.#stepUploads();
     this.#hd.step();
+    this.#ultra.step();
     // Clamp delta so returning to a background tab doesn't cause a big jump.
     const delta = this.#lastTime === null ? 0 : Math.min((time - this.#lastTime) / 1000, 0.1);
     this.#lastTime = time;

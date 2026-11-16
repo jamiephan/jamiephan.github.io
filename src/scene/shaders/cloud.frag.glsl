@@ -1,11 +1,13 @@
 uniform sampler2D uClouds;
+uniform sampler2D uCloudsUltra;
+uniform vec4 uCloudsUltraRect;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec4 uOccluder;
 
 void main() {
   computeSphereUv();
-  float density = sphereTexture(uClouds, vec2(0.0)).r;
+  float density = ultraTexture(uClouds, uCloudsUltra, uCloudsUltraRect, vec2(0.0)).r;
   vec3 N = normalize(vWorldNormal);
   float NdL = dot(N, uSunDir);
 
