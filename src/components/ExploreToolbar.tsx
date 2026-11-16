@@ -59,7 +59,11 @@ export function ExploreToolbar({
     pickerRef.current
       ?.querySelector(`input[value="${focused}"]`)
       ?.closest("label")
-      ?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+      ?.scrollIntoView({
+        block: "nearest",
+        inline: "center",
+        behavior: "smooth",
+      });
   }, [focused]);
 
   // Disabling the focused control (e.g. Reset itself) drops focus to the page: put it back
@@ -151,7 +155,7 @@ export function ExploreToolbar({
         <ZoomButton zoom={zoom} direction={-1} label="Zoom out" disabled={locked} />
         <ZoomButton zoom={zoom} direction={1} label="Zoom in" disabled={locked} />
         <button type="button" className="button" disabled={locked} onClick={onReset}>
-          {locked ? "Resetting…" : "Reset"}
+          Reset
         </button>
         <button type="button" className="button" onClick={onHelp}>
           Controls
