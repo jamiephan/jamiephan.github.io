@@ -110,7 +110,7 @@ export function FlightControls({
             <span className="flight-controls__hint flight-controls__hint--keyboard">
               <kbd>W</kbd> <kbd>S</kbd> thrust · <kbd>A</kbd> <kbd>D</kbd> strafe · <kbd>Q</kbd>{" "}
               <kbd>E</kbd> roll · mouse or arrow keys steer · <kbd>Shift</kbd> boost · <kbd>H</kbd>{" "}
-              hide · <kbd>Esc</kbd> end
+              hide · <kbd>R</kbd> reset · <kbd>F</kbd> or <kbd>Esc</kbd> end
             </span>
             <span className="flight-controls__hint flight-controls__hint--touch">
               Point your phone or drag to look around · hold the screen to boost · arrows roll

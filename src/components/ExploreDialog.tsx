@@ -11,6 +11,8 @@ const controls: [action: string, how: string][] = [
   ["Pan", "Right-click drag or drag with two fingers"],
   ["Roll", "Hold Q / E or the roll buttons"],
   ["Fly to a planet", "Click or tap it, or pick from the list"],
+  ["Reset the view", "R or the Reset button"],
+  ["Flight mode", "F to start or end, or the Flight mode button"],
 ];
 
 export function ExploreDialog({ open, onClose }: ExploreDialogProps) {

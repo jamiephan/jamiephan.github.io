@@ -51,7 +51,11 @@ export function App() {
     startFlight,
     endFlight,
     leaveFullscreen,
-  } = useExploreMode({ onResetView: resetView, onRoll: roll });
+  } = useExploreMode({
+    onResetView: resetView,
+    onRoll: roll,
+    locked: resetting,
+  });
   const beginFlight = useCallback(() => {
     requestTiltPermission();
     startFlight();
