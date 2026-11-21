@@ -68,6 +68,8 @@ export function SpaceBackground({
     onResettingChangeRef.current = onResettingChange;
   }, [onResettingChange]);
   const [status, setStatus] = useState<Status>("loading");
+  // Set once the spotlight reveal has finished, so the CSS can drop its mask.
+  const [revealed, setRevealed] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -136,5 +138,18 @@ export function SpaceBackground({
     [],
   );
 
-  return <div ref={containerRef} className="space" data-status={status} aria-hidden="true" />;
+  return (
+    <div
+      ref={containerRef}
+      className="space"
+      data-status={status}
+      data-revealed={revealed || undefined}
+      aria-hidden="true"
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget && event.animationName === "space-spotlight") {
+          setRevealed(true);
+        }
+      }}
+    />
+  );
 }

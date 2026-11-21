@@ -189,10 +189,25 @@ kbd {
   /* Large viewport height: the canvas doesn't resize as mobile browser bars show/hide. */
   height: 100lvh;
   opacity: 0;
-  transition: opacity 1.2s ease-out;
 
+  /*
+   * Revealed like a spotlight opening out from the hero glow to the edges. The mask is dropped
+   * once it's done (`data-revealed`, set on animationend) so the canvas isn't masked every frame
+   * afterwards.
+   */
   &[data-status="ready"] {
     opacity: 1;
+    mask-image: radial-gradient(
+      circle at 50% 45%,
+      #000 calc(var(--spotlight) * 0.55),
+      transparent var(--spotlight)
+    );
+    animation: space-spotlight 2.8s ease-in-out both;
+  }
+
+  &[data-revealed] {
+    mask-image: none;
+    animation: none;
   }
 
   & canvas {
@@ -203,6 +218,21 @@ kbd {
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
+  }
+}
+
+@property --spotlight {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes space-spotlight {
+  from {
+    --spotlight: 0px;
+  }
+  to {
+    --spotlight: 130vmax;
   }
 }
 
